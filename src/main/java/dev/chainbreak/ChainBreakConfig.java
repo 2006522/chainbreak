@@ -1,9 +1,15 @@
 package dev.chainbreak;
 
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.block.Block;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Properties;
 import java.util.Set;
@@ -56,7 +62,86 @@ public final class ChainBreakConfig {
 
     private static boolean loaded = false;
 
+    /**
+     * 黑名单 / 工具名单解析成注册表对象后的缓存。
+     * 连锁挖矿的 BFS 每个方块都要判一次黑名单，用对象比较可以避免每次
+     * {@code Identifier.toString()} 的字符串分配。
+     */
+    private static Set<Block> blacklistBlocks = Set.of();
+    private static Set<Item> includedToolItems = Set.of();
+    private static Set<Item> excludedToolItems = Set.of();
+
     private ChainBreakConfig() {
+    }
+
+    /** 方块是否在黑名单里（优先走对象集合，未解析到的 id 才回退字符串比较）。 */
+    public static boolean isBlacklisted(Block block) {
+        if (blacklistBlocks.contains(block)) {
+            return true;
+        }
+        return blacklistBlocks.size() < blacklist.size()
+                && blacklist.contains(BuiltInRegistries.BLOCK.getKey(block).toString());
+    }
+
+    /** 物品 id 是否在"额外算作工具"名单里。 */
+    public static boolean isIncludedTool(Item item) {
+        if (includedToolItems.contains(item)) {
+            return true;
+        }
+        return includedToolItems.size() < includedTools.size()
+                && includedTools.contains(BuiltInRegistries.ITEM.getKey(item).toString());
+    }
+
+    /** 物品 id 是否在"禁止触发"名单里。 */
+    public static boolean isExcludedTool(Item item) {
+        if (excludedToolItems.contains(item)) {
+            return true;
+        }
+        return excludedToolItems.size() < excludedTools.size()
+                && excludedTools.contains(BuiltInRegistries.ITEM.getKey(item).toString());
+    }
+
+    /** 把字符串名单解析成注册表对象（配置变动后调用）。 */
+    private static void rebuildIndexes() {
+        blacklistBlocks = resolveBlocks(blacklist);
+        includedToolItems = resolveItems(includedTools);
+        excludedToolItems = resolveItems(excludedTools);
+    }
+
+    private static Set<Block> resolveBlocks(Set<String> ids) {
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        Set<Block> out = new HashSet<>(ids.size() * 2);
+        for (String id : ids) {
+            Identifier rl = Identifier.tryParse(id);
+            if (rl == null) {
+                continue;
+            }
+            Block block = BuiltInRegistries.BLOCK.getValue(rl);
+            if (block != null) {
+                out.add(block);
+            }
+        }
+        return out;
+    }
+
+    private static Set<Item> resolveItems(Set<String> ids) {
+        if (ids.isEmpty()) {
+            return Set.of();
+        }
+        Set<Item> out = new HashSet<>(ids.size() * 2);
+        for (String id : ids) {
+            Identifier rl = Identifier.tryParse(id);
+            if (rl == null) {
+                continue;
+            }
+            Item item = BuiltInRegistries.ITEM.getValue(rl);
+            if (item != null) {
+                out.add(item);
+            }
+        }
+        return out;
     }
 
     public static void loadIfNeeded() {
@@ -95,6 +180,7 @@ public final class ChainBreakConfig {
         blacklist = set(p, "blacklist", blacklist);
         includedTools = set(p, "included_tools", includedTools);
         excludedTools = set(p, "excluded_tools", excludedTools);
+        rebuildIndexes();
 
         if (!FILE.isFile()) {
             save();
@@ -103,6 +189,7 @@ public final class ChainBreakConfig {
 
     /** 把当前内存中的配置写回文件。 */
     public static void save() {
+        rebuildIndexes();
         try {
             File parent = FILE.getParentFile();
             if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {

@@ -3,11 +3,9 @@ package dev.chainbreak.mixin;
 import dev.chainbreak.ChainBreak;
 import dev.chainbreak.ChainBreakConfig;
 import dev.chainbreak.ChainBreakState;
-import dev.chainbreak.Shapes;
+import dev.chainbreak.ChainSearch;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -25,12 +23,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -40,6 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 玩家正常挖掉一个方块后，若满足条件，按配置的形状收集候选方块，逐个走原版
  * {@code destroyBlock} 流程销毁 —— 掉落物、时运/精准采集、工具耐久、统计、
  * 冒险模式限制、领地保护判定全部沿用原版逻辑。
+ * <p>
+ * drop_mode 不是 normal 时（进背包 / 掉到脚下），起始方块也要走自定义掉落，
+ * 于是在 HEAD 阶段整轮接管，原版破坏不再执行。
  */
 @Mixin(ServerPlayerGameMode.class)
 public abstract class ServerPlayerGameModeMixin {
@@ -68,24 +65,15 @@ public abstract class ServerPlayerGameModeMixin {
         BlockState state = this.level.getBlockState(pos);
         this.chainbreak$originState = state;
 
-        // 非 normal 掉落模式：起始方块也走自定义掉落，取消原版破坏流程
-        if (!CHAINBREAK_BUSY.get() && state != null && !state.isAir()
-                && !"normal".equals(ChainBreakConfig.dropMode)) {
-            ItemStack tool = this.player.getMainHandItem();
-            if (this.chainbreak$isTriggered()
-                    && !this.chainbreak$blocked(tool, state)) {
-                // 冷却检查
-                long now = System.currentTimeMillis();
-                long cooldownMs = ChainBreakConfig.cooldownTicks * 50L;
-                Long last = CHAINBREAK_LAST_USE.get(this.player.getUUID());
-                if (!(cooldownMs > 0 && last != null && now - last < cooldownMs)) {
-                    // 接管：破坏起始方块 + 连锁，统一掉落
-                    this.chainbreak$originState = null;
-                    this.chainbreak$runChainWithOrigin(pos, state);
-                    cir.setReturnValue(Boolean.TRUE);
-                    return;
-                }
-            }
+        // 只有非 normal 掉落模式才需要在 HEAD 接管（起始方块也要自定义掉落）
+        if (CHAINBREAK_BUSY.get() || state == null || state.isAir()
+                || "normal".equals(ChainBreakConfig.dropMode)) {
+            return;
+        }
+        if (this.chainbreak$runChain(pos, state, true)) {
+            // 接管成功：清掉记录，避免取消后在 RETURN 阶段再跑一遍连锁
+            this.chainbreak$originState = null;
+            cir.setReturnValue(Boolean.TRUE);
         }
     }
 
@@ -98,49 +86,48 @@ public abstract class ServerPlayerGameModeMixin {
             return;
         }
         try {
-            this.chainbreak$runChain(pos, origin);
+            this.chainbreak$runChain(pos, origin, false);
         } catch (Exception e) {
             ChainBreak.LOGGER.log(System.Logger.Level.ERROR, "[chainbreak] 连锁挖矿时发生异常", e);
         }
     }
 
-    /** 门槛检查（不触发时不接管，走原版）。 */
+    /** 门槛检查（不满足时整轮不接管，走原版）。 */
     @Unique
     private boolean chainbreak$blocked(ItemStack tool, BlockState origin) {
-        String toolId = BuiltInRegistries.ITEM.getKey(tool.getItem()).toString();
-        if (!ChainBreakConfig.excludedTools.isEmpty() && ChainBreakConfig.excludedTools.contains(toolId)) {
+        if (!tool.isEmpty() && ChainBreakConfig.isExcludedTool(tool.getItem())) {
             return true;
         }
         if (ChainBreakConfig.requireTool
                 && !tool.isDamageableItem()
-                && !ChainBreakConfig.includedTools.contains(toolId)) {
+                && !ChainBreakConfig.isIncludedTool(tool.getItem())) {
             return true;
         }
-        if (ChainBreakConfig.blacklist.contains(
-                BuiltInRegistries.BLOCK.getKey(origin.getBlock()).toString())) {
+        if (ChainBreakConfig.isBlacklisted(origin.getBlock())) {
             return true;
         }
-        if (ChainBreakConfig.requireValidToolForBlock
+        return ChainBreakConfig.requireValidToolForBlock
                 && !tool.isEmpty()
                 && origin.requiresCorrectToolForDrops()
-                && !tool.isCorrectToolForDrops(origin)) {
-            return true;
-        }
-        return false;
+                && !tool.isCorrectToolForDrops(origin);
     }
 
+    /**
+     * 执行一次连锁挖矿。
+     *
+     * @param includeOrigin true 表示起始方块还没被破坏（HEAD 接管模式），由这里一并处理；
+     *                      false 表示起始方块已被原版破坏（RETURN 模式），只处理连锁部分
+     * @return 是否真的接管了（false 时调用方应放行原版逻辑）
+     */
     @Unique
-    private void chainbreak$runChain(BlockPos pos, BlockState origin) {
+    private boolean chainbreak$runChain(BlockPos pos, BlockState origin, boolean includeOrigin) {
         ChainBreakConfig.loadIfNeeded();
 
         ItemStack tool = this.player.getMainHandItem();
 
         // 1. 触发条件
-        if (this.chainbreak$blocked(tool, origin)) {
-            return;
-        }
-        if (!this.chainbreak$isTriggered()) {
-            return;
+        if (this.chainbreak$blocked(tool, origin) || !this.chainbreak$isTriggered()) {
+            return false;
         }
 
         // 2. 冷却
@@ -148,47 +135,45 @@ public abstract class ServerPlayerGameModeMixin {
         long cooldownMs = ChainBreakConfig.cooldownTicks * 50L;
         Long last = CHAINBREAK_LAST_USE.get(this.player.getUUID());
         if (cooldownMs > 0 && last != null && now - last < cooldownMs) {
-            this.chainbreak$feedback("§c连锁挖矿冷却中");
-            return;
+            // 接管模式下静默放行（原版照常挖这一个方块），RETURN 模式下给个提示
+            if (!includeOrigin) {
+                this.chainbreak$feedback("§c连锁挖矿冷却中");
+            }
+            return false;
         }
 
         // 3. 经验预检（至少要够扣一个方块）
         double xpPerBlock = ChainBreakConfig.experiencePerBlock;
         if (xpPerBlock > 0.0D && this.player.totalExperience < Math.round(xpPerBlock)) {
-            this.chainbreak$feedback("§c经验不足");
-            return;
+            if (!includeOrigin) {
+                this.chainbreak$feedback("§c经验不足");
+            }
+            return false;
         }
 
-        // 4. 收集候选方块（形状可由按键或命令实时切换）
-        String shape = ChainBreakState.effectiveShape();
-        List<BlockPos> candidates;
-        if (Shapes.SHAPELESS.equals(shape)) {
-            candidates = this.chainbreak$collectVein(pos, origin, tool);
-        } else {
-            Direction face = this.player.getDirection();
-            candidates = Shapes.geometric(shape, pos, face, ChainBreakConfig.maxBlocks);
-        }
-        if (candidates.isEmpty()) {
-            return;
-        }
+        // 4. 收集候选（形状可由按键或命令实时切换；此时起始方块可能还在，先算再破坏）
+        List<BlockPos> candidates = ChainSearch.collect(this.level, ChainBreakState.effectiveShape(),
+                pos, origin, this.player.getDirection(), tool);
 
         // 5. 逐个破坏
-        int broken = 0;
+        int chained = 0;
         CHAINBREAK_BUSY.set(Boolean.TRUE);
         try {
+            if (includeOrigin) {
+                this.chainbreak$destroy(pos, tool);
+            }
             for (BlockPos target : candidates) {
-                if (broken >= ChainBreakConfig.maxBlocks) {
+                if (chained >= ChainBreakConfig.maxBlocks) {
                     break;
                 }
                 if (this.chainbreak$toolSpent(tool)) {
                     break;
                 }
-                if (!this.chainbreak$isCandidate(target, origin, tool)) {
+                if (!ChainSearch.isCandidate(this.level, target, tool)) {
                     continue;
                 }
-                boolean ok = this.chainbreak$destroy(target, tool);
-                if (ok) {
-                    broken++;
+                if (this.chainbreak$destroy(target, tool)) {
+                    chained++;
                 } else if (ChainBreakConfig.cancelOnBlockBreakFail) {
                     break;
                 }
@@ -197,28 +182,28 @@ public abstract class ServerPlayerGameModeMixin {
             CHAINBREAK_BUSY.set(Boolean.FALSE);
         }
 
-        if (broken <= 0) {
-            return;
+        // 一个都没连锁掉时：RETURN 模式不进入冷却（和原版挖单块一致）
+        if (chained <= 0 && !includeOrigin) {
+            return true;
         }
 
-        // 6. 结算消耗与冷却
+        // 6. 结算消耗与冷却（总数 = 连锁数 + 起始方块）
+        int total = chained + 1;
         if (ChainBreakConfig.cooldownTicks > 0) {
             CHAINBREAK_LAST_USE.put(this.player.getUUID(), now);
         }
         if (ChainBreakConfig.exhaustionPerBlock > 0.0D) {
-            this.player.causeFoodExhaustion((float) (ChainBreakConfig.exhaustionPerBlock * broken));
+            this.player.causeFoodExhaustion((float) (ChainBreakConfig.exhaustionPerBlock * total));
         }
         if (xpPerBlock > 0.0D) {
-            int cost = (int) Math.min(Math.round(xpPerBlock * broken), this.player.totalExperience);
+            int cost = (int) Math.min(Math.round(xpPerBlock * total), this.player.totalExperience);
             if (cost > 0) {
                 this.player.giveExperiencePoints(-cost);
             }
         }
-        if (ChainBreakConfig.feedback) {
-            this.chainbreak$feedback("§a" + origin.getBlock().getName().getString()
-                    + " §f×" + (broken + 1));
-        }
-        ChainBreakState.lastBroken = broken + 1;
+        this.chainbreak$feedback("§a" + origin.getBlock().getName().getString() + " §f×" + total);
+        ChainBreakState.lastBroken = total;
+        return true;
     }
 
     /** 触发条件：按键 / 潜行 / 两者任一，由配置 trigger 决定。 */
@@ -231,71 +216,6 @@ public abstract class ServerPlayerGameModeMixin {
             case "both" -> sneaking || key;
             default -> key;
         };
-    }
-
-    /** 无形状模式：以起始方块为中心做 BFS，只连同样式的相邻方块。 */
-    @Unique
-    private List<BlockPos> chainbreak$collectVein(BlockPos pos, BlockState origin, ItemStack tool) {
-        int limit = ChainBreakConfig.maxBlocks;
-        int budget = limit * 8 + 64;
-        boolean anyBlock = ChainBreakConfig.shapelessAnyBlock;
-
-        List<BlockPos> out = new ArrayList<>(Math.min(limit, 64));
-        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
-        Set<BlockPos> visited = new HashSet<>();
-
-        BlockPos start = pos.immutable();
-        visited.add(start);
-        queue.add(start);
-
-        while (!queue.isEmpty() && out.size() < limit && budget-- > 0) {
-            BlockPos current = queue.poll();
-            for (Direction dir : Direction.values()) {
-                if (out.size() >= limit) {
-                    break;
-                }
-                BlockPos next = current.relative(dir);
-                if (!visited.add(next)) {
-                    continue;
-                }
-                if (!this.chainbreak$isCandidate(next, origin, tool)) {
-                    continue;
-                }
-                if (!anyBlock && this.level.getBlockState(next).getBlock() != origin.getBlock()) {
-                    continue;
-                }
-                out.add(next);
-                queue.add(next);
-            }
-        }
-        return out;
-    }
-
-    /** 判断某个坐标是否允许被连锁挖矿。 */
-    @Unique
-    private boolean chainbreak$isCandidate(BlockPos pos, BlockState origin, ItemStack tool) {
-        if (!this.level.isLoaded(pos)) {
-            return false;
-        }
-        BlockState state = this.level.getBlockState(pos);
-        if (state.isAir()) {
-            return false;
-        }
-        // 硬度 < 0 表示不可破坏（基岩、屏障等）
-        if (state.getDestroySpeed(this.level, pos) < 0.0F) {
-            return false;
-        }
-        String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-        if (ChainBreakConfig.blacklist.contains(id)) {
-            return false;
-        }
-        if (ChainBreakConfig.requireValidToolForBlock
-                && !tool.isEmpty()
-                && state.requiresCorrectToolForDrops()
-                && !tool.isCorrectToolForDrops(state)) {
-            return false;
-        }
-        return true;
     }
 
     /** 工具即将损坏时停止连锁（空手不算耗尽，返回 false 继续连锁）。 */
@@ -325,71 +245,6 @@ public abstract class ServerPlayerGameModeMixin {
     }
 
     /**
-     * 非 normal 掉落模式下接管破坏：起始方块 + 连锁方块统一按 drop_mode 掉落。
-     */
-    @Unique
-    private void chainbreak$runChainWithOrigin(BlockPos pos, BlockState origin) {
-        ChainBreakConfig.loadIfNeeded();
-        ItemStack tool = this.player.getMainHandItem();
-
-        CHAINBREAK_BUSY.set(Boolean.TRUE);
-        try {
-            // 先破坏起始方块（自定义掉落）
-            this.chainbreak$destroy(pos, tool);
-
-            // 收集候选
-            String shape = ChainBreakState.effectiveShape();
-            List<BlockPos> candidates;
-            if (Shapes.SHAPELESS.equals(shape)) {
-                candidates = this.chainbreak$collectVein(pos, origin, tool);
-            } else {
-                Direction face = this.player.getDirection();
-                candidates = Shapes.geometric(shape, pos, face, ChainBreakConfig.maxBlocks);
-            }
-
-            int broken = 0;
-            for (BlockPos target : candidates) {
-                if (broken >= ChainBreakConfig.maxBlocks) {
-                    break;
-                }
-                if (this.chainbreak$toolSpent(tool)) {
-                    break;
-                }
-                if (!this.chainbreak$isCandidate(target, origin, tool)) {
-                    continue;
-                }
-                if (this.chainbreak$destroy(target, tool)) {
-                    broken++;
-                } else if (ChainBreakConfig.cancelOnBlockBreakFail) {
-                    break;
-                }
-            }
-
-            // 结算（broken 不含起始方块，+1 计总数）
-            if (ChainBreakConfig.cooldownTicks > 0) {
-                CHAINBREAK_LAST_USE.put(this.player.getUUID(), System.currentTimeMillis());
-            }
-            if (ChainBreakConfig.exhaustionPerBlock > 0.0D) {
-                this.player.causeFoodExhaustion((float) (ChainBreakConfig.exhaustionPerBlock * (broken + 1)));
-            }
-            if (ChainBreakConfig.experiencePerBlock > 0.0D) {
-                int cost = (int) Math.min(Math.round(ChainBreakConfig.experiencePerBlock * (broken + 1)),
-                        this.player.totalExperience);
-                if (cost > 0) {
-                    this.player.giveExperiencePoints(-cost);
-                }
-            }
-            if (ChainBreakConfig.feedback) {
-                this.chainbreak$feedback("§a" + origin.getBlock().getName().getString()
-                        + " §f×" + (broken + 1));
-            }
-            ChainBreakState.lastBroken = broken + 1;
-        } finally {
-            CHAINBREAK_BUSY.set(Boolean.FALSE);
-        }
-    }
-
-    /**
      * 破坏一个方块并按 drop_mode 处理掉落。
      * normal 走原版 destroyBlock（原地掉落）；inventory 进背包；feet 掉到玩家脚下。
      */
@@ -412,16 +267,17 @@ public abstract class ServerPlayerGameModeMixin {
         // 移除方块（不生成实体掉落）
         this.level.removeBlock(pos, false);
 
-        if ("inventory".equals(mode)) {
-            for (ItemStack drop : drops) {
-                if (!this.player.getInventory().add(drop.copy())) {
-                    // 背包满则掉到脚下兜底
+        for (ItemStack drop : drops) {
+            if ("inventory".equals(mode)) {
+                // Inventory#add 会消耗传入的 stack：背包只放得下一部分时剩余量留在 copy 里。
+                // 用 copy 判断后把剩下的掉在地上，避免"原 stack 再掉一次"造成物品复制。
+                ItemStack copy = drop.copy();
+                this.player.getInventory().add(copy);
+                if (!copy.isEmpty()) {
                     Containers.dropItemStack(this.level, this.player.getX(),
-                            this.player.getY(), this.player.getZ(), drop);
+                            this.player.getY(), this.player.getZ(), copy);
                 }
-            }
-        } else { // feet
-            for (ItemStack drop : drops) {
+            } else {
                 Containers.dropItemStack(this.level, this.player.getX(),
                         this.player.getY(), this.player.getZ(), drop);
             }

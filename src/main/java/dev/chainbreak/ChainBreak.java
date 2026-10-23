@@ -7,7 +7,7 @@ package dev.chainbreak;
 public final class ChainBreak {
 
     public static final String MOD_ID = "chainbreak";
-    public static final String VERSION = "4.0.0";
+    public static final String VERSION = "4.0.2";
     public static final System.Logger LOGGER = System.getLogger("chainbreak");
 
     private ChainBreak() {

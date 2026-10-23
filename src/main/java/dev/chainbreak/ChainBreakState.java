@@ -38,13 +38,7 @@ public final class ChainBreakState {
 
     /** 当前形状在列表中的索引（0 起），找不到返回 0。 */
     public static int index() {
-        String cur = effectiveShape();
-        for (int i = 0; i < SHAPES.length; i++) {
-            if (SHAPES[i].equals(cur)) {
-                return i;
-            }
-        }
-        return 0;
+        return indexOf(SHAPES, effectiveShape());
     }
 
     /** 当前生效的形状显示名。 */
@@ -52,14 +46,10 @@ public final class ChainBreakState {
         return displayName(effectiveShape());
     }
 
-    /** 形状 id 转显示名。 */
+    /** 形状 id 转显示名（未知 id 原样返回）。 */
     public static String displayName(String shape) {
-        for (int i = 0; i < SHAPES.length; i++) {
-            if (SHAPES[i].equals(shape)) {
-                return SHAPE_NAMES[i];
-            }
-        }
-        return shape;
+        int i = indexOf(SHAPES, shape);
+        return SHAPES[i].equals(shape) ? SHAPE_NAMES[i] : shape;
     }
 
     /** 在字符串数组里找值的位置，找不到返回 0。 */
@@ -85,16 +75,7 @@ public final class ChainBreakState {
 
     /** 切换到下一个/上一个形状。 */
     public static void cycleShape(int dir) {
-        String cur = effectiveShape();
-        int idx = 0;
-        for (int i = 0; i < SHAPES.length; i++) {
-            if (SHAPES[i].equals(cur)) {
-                idx = i;
-                break;
-            }
-        }
         int n = SHAPES.length;
-        idx = ((idx + dir) % n + n) % n;
-        shapeOverride = SHAPES[idx];
+        shapeOverride = SHAPES[((index() + dir) % n + n) % n];
     }
 }
