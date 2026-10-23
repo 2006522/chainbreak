@@ -21,7 +21,7 @@ public final class ChainBreakState {
     /** 连锁按键是否按下（由客户端每刻刷新）。 */
     public static volatile boolean keyDown = false;
 
-    /** 上一次连锁破坏的方块数（HUD 显示用）。 */
+    /** 上一次连锁挖矿的方块数（HUD 显示用）。 */
     public static volatile int lastBroken = 0;
 
     /** 客户端切换过的形状；null 表示用配置文件里的 shape。 */

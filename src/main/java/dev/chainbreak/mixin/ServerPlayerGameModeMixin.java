@@ -35,7 +35,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 连锁破坏核心，挂在服务端 ServerPlayerGameMode#destroyBlock 上。
+ * 连锁挖矿核心，挂在服务端 ServerPlayerGameMode#destroyBlock 上。
  * <p>
  * 玩家正常挖掉一个方块后，若满足条件，按配置的形状收集候选方块，逐个走原版
  * {@code destroyBlock} 流程销毁 —— 掉落物、时运/精准采集、工具耐久、统计、
@@ -100,7 +100,7 @@ public abstract class ServerPlayerGameModeMixin {
         try {
             this.chainbreak$runChain(pos, origin);
         } catch (Exception e) {
-            ChainBreak.LOGGER.log(System.Logger.Level.ERROR, "[chainbreak] 连锁破坏时发生异常", e);
+            ChainBreak.LOGGER.log(System.Logger.Level.ERROR, "[chainbreak] 连锁挖矿时发生异常", e);
         }
     }
 
@@ -148,7 +148,7 @@ public abstract class ServerPlayerGameModeMixin {
         long cooldownMs = ChainBreakConfig.cooldownTicks * 50L;
         Long last = CHAINBREAK_LAST_USE.get(this.player.getUUID());
         if (cooldownMs > 0 && last != null && now - last < cooldownMs) {
-            this.chainbreak$feedback("§c连锁破坏冷却中");
+            this.chainbreak$feedback("§c连锁挖矿冷却中");
             return;
         }
 
@@ -271,7 +271,7 @@ public abstract class ServerPlayerGameModeMixin {
         return out;
     }
 
-    /** 判断某个坐标是否允许被连锁破坏。 */
+    /** 判断某个坐标是否允许被连锁挖矿。 */
     @Unique
     private boolean chainbreak$isCandidate(BlockPos pos, BlockState origin, ItemStack tool) {
         if (!this.level.isLoaded(pos)) {

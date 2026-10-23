@@ -26,7 +26,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 连锁破坏 HUD（对标 FTB Ultimine 的左上角面板）。
+ * 连锁挖矿 HUD（对标 FTB Ultimine 的左上角面板）。
  * <ul>
  *   <li>按住激活键：左上角半透明面板，显示标题、当前形状、预估采掘数；</li>
  *   <li>按住激活键 + 潜行键：面板展开形状列表，当前形状黄色高亮，滚轮切换。</li>
@@ -61,7 +61,7 @@ public class ChainBreakHud implements HudElement {
         int x = 4 + PAD;
         int y = 4 + PAD;
 
-        g.text(font, Component.literal("连锁破坏 已激活"), x, y, 0xFFFFFFFF);
+        g.text(font, Component.literal("连锁挖矿 已激活"), x, y, 0xFFFFFFFF);
         y += LINE;
 
         if (menuOpen) {
@@ -132,7 +132,7 @@ public class ChainBreakHud implements HudElement {
                 || InputConstants.isKeyDown(InputConstants.KEY_RSHIFT);
     }
 
-    /** 预估准星指向方块被连锁破坏的总数（含起始方块，逻辑与服务端一致）。 */
+    /** 预估准星指向方块被连锁挖掉的总数（含起始方块，逻辑与服务端一致）。 */
     private int estimateTargeted(Minecraft mc) {
         List<BlockPos> candidates = ChainBreakPreview.candidates(mc);
         if (candidates == null) {

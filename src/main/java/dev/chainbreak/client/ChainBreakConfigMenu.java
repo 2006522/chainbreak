@@ -7,14 +7,14 @@ import net.minecraft.network.chat.Component;
 
 /**
  * 配置主菜单（对标 FTB Library 的配置入口）：
- * 连锁破坏 → 客户端配置 / 服务端配置 / 返回。
+ * 连锁挖矿 → 客户端配置 / 服务端配置 / 返回。
  */
 public class ChainBreakConfigMenu extends Screen {
 
     private final Screen parent;
 
     public ChainBreakConfigMenu(Screen parent) {
-        super(Component.literal("连锁破坏"));
+        super(Component.literal("连锁挖矿"));
         this.parent = parent;
     }
 

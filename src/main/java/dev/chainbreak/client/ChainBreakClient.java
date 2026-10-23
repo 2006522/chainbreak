@@ -12,7 +12,7 @@ import net.minecraft.resources.Identifier;
 /**
  * 客户端入口：注册按键并把按键状态写进 ChainBreakState。
  * <p>
- * 默认按键：` 启用连锁破坏，[ / ] 切换形状，K 打开配置界面。
+ * 默认按键：` 启用连锁挖矿，[ / ] 切换形状，K 打开配置界面。
  */
 public class ChainBreakClient implements ClientModInitializer {
 

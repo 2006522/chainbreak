@@ -24,7 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.util.List;
 
 /**
- * 按住连锁键时，为准星指向方块按当前形状将连锁破坏的所有方块
+ * 按住连锁键时，为准星指向方块按当前形状将被连锁挖掉的所有方块
  * 提交线框轮廓（复用原版 submitHitOutline 管线，白色线框）。
  * 只在 client mixins 注册（引用了客户端类）。
  */

@@ -32,7 +32,7 @@ public final class ChainBreakPreview {
     }
 
     /**
-     * 准星指向方块按当前形状将连锁破坏的方块列表（不含起始方块）。
+     * 准星指向方块按当前形状将被连锁挖掉的方块列表（不含起始方块）。
      * 起始方块不合格（未指向/空气/黑名单/工具不符）时返回 null。
      */
     public static List<BlockPos> candidates(Minecraft mc) {

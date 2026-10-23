@@ -1,7 +1,7 @@
 package dev.chainbreak;
 
 /**
- * 连锁破坏 ChainBreak —— 常量与日志。
+ * 连锁挖矿 ChainBreak —— 常量与日志。
  * 不依赖 slf4j，使用 JDK 的 System.Logger，保持轻量。
  */
 public final class ChainBreak {

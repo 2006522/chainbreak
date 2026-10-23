@@ -146,7 +146,7 @@ public final class ChainBreakCommand {
 
     private static int info(CommandSourceStack source) {
         source.sendSuccess(() -> Component.literal(
-                "§6[连锁破坏] §f形状=" + ChainBreakState.effectiveShapeName()
+                "§6[连锁挖矿] §f形状=" + ChainBreakState.effectiveShapeName()
                         + " §7| §f上限=" + ChainBreakConfig.maxBlocks
                         + " §7| §f触发=" + ChainBreakConfig.trigger
                         + " §7| §f饥饿=" + ChainBreakConfig.exhaustionPerBlock
@@ -162,12 +162,12 @@ public final class ChainBreakCommand {
     }
 
     private static int ok(CommandSourceStack source, String msg) {
-        source.sendSuccess(() -> Component.literal("§a[连锁破坏] §f" + msg), false);
+        source.sendSuccess(() -> Component.literal("§a[连锁挖矿] §f" + msg), false);
         return 1;
     }
 
     private static int fail(CommandSourceStack source, String msg) {
-        source.sendFailure(Component.literal("§c[连锁破坏] " + msg));
+        source.sendFailure(Component.literal("§c[连锁挖矿] " + msg));
         return 0;
     }
 }

@@ -1,6 +1,6 @@
 {
-  "key.category.chainbreak": "连锁破坏",
-  "key.chainbreak.activate": "启用连锁破坏",
+  "key.category.chainbreak": "连锁挖矿",
+  "key.chainbreak.activate": "启用连锁挖矿",
   "key.chainbreak.shape_next": "切换形状（下一个）",
   "key.chainbreak.shape_prev": "切换形状（上一个）",
   "key.chainbreak.config": "打开配置界面"

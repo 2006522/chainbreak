@@ -127,7 +127,7 @@ public final class ChainBreakConfig {
             out.setProperty("included_tools", String.join(",", includedTools));
             out.setProperty("excluded_tools", String.join(",", excludedTools));
             try (FileOutputStream fos = new FileOutputStream(FILE)) {
-                out.store(fos, "ChainBreak - 连锁破坏配置（对齐 FTB Ultimine 服务端设置）");
+                out.store(fos, "ChainBreak - 连锁挖矿配置（对齐 FTB Ultimine 服务端设置）");
             }
         } catch (Exception e) {
             ChainBreak.LOGGER.log(System.Logger.Level.WARNING, "[chainbreak] 写入配置失败", e);
