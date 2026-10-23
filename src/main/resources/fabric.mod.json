@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "chainbreak",
+  "version": "4.0.0",
+  "name": "Chain Break 连锁破坏",
+  "description": "按住 ` 键挖掘即可连锁破坏方块。6 种形状（无形状/小型通道/大型通道/小型方形/逃生通道/采矿通道），[ ] 键实时切换；饥饿与经验消耗、冷却、工具保护、方块黑名单；支持 /chainbreak 命令在游戏内改配置。",
+  "authors": [
+    "WorkBuddy"
+  ],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "dev.chainbreak.ChainBreakMod"
+    ],
+    "client": [
+      "dev.chainbreak.client.ChainBreakClient"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "fabric-api": ">=0.140.0",
+    "minecraft": ">=26.3 <26.5",
+    "java": ">=25"
+  },
+  "mixins": [
+    "chainbreak.mixins.json"
+  ]
+}

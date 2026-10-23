@@ -1,0 +1,20 @@
+# 构建产物
+build/
+dist/
+
+# 依赖（本地缓存）
+mclibs/
+fapi/
+*.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# 系统
+.DS_Store
+Thumbs.db
