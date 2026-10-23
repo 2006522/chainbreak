@@ -132,115 +132,13 @@ public class ChainBreakHud implements HudElement {
                 || InputConstants.isKeyDown(InputConstants.KEY_RSHIFT);
     }
 
-    /** 预估准星指向方块被连锁破坏的数量（逻辑与服务端一致）。 */
+    /** 预估准星指向方块被连锁破坏的总数（含起始方块，逻辑与服务端一致）。 */
     private int estimateTargeted(Minecraft mc) {
-        if (mc.level == null || !(mc.hitResult instanceof BlockHitResult bhr)
-                || bhr.getType() != HitResult.Type.BLOCK) {
-            return 0;
-        }
-        BlockPos origin = bhr.getBlockPos();
-        BlockState originState = mc.level.getBlockState(origin);
-        ItemStack tool = mc.player.getMainHandItem();
-
-        // 起始方块本身必须可连锁（对齐服务端门槛）
-        if (originState.isAir()
-                || originState.getDestroySpeed(mc.level, origin) < 0.0F
-                || ChainBreakConfig.blacklist.contains(
-                        BuiltInRegistries.BLOCK.getKey(originState.getBlock()).toString())) {
-            return 0;
-        }
-        if (ChainBreakConfig.requireValidToolForBlock
-                && !tool.isEmpty()
-                && originState.requiresCorrectToolForDrops()
-                && !tool.isCorrectToolForDrops(originState)) {
-            return 0;
-        }
-
-        String shape = ChainBreakState.effectiveShape();
-        List<BlockPos> candidates;
-        if (Shapes.SHAPELESS.equals(shape)) {
-            candidates = collectVeinClient(mc, origin, originState, tool);
-        } else {
-            candidates = Shapes.geometric(shape, origin, mc.player.getDirection(),
-                    ChainBreakConfig.maxBlocks);
-        }
-
-        boolean shapeless = Shapes.SHAPELESS.equals(shape);
-        boolean anyBlock = shapeless ? ChainBreakConfig.shapelessAnyBlock : ChainBreakConfig.shapedAnyBlock;
-        int count = 0;
-        for (BlockPos p : candidates) {
-            BlockState s = mc.level.getBlockState(p);
-            if (!candidateOk(mc, s, p, tool)) {
-                continue;
-            }
-            if (!anyBlock && s.getBlock() != originState.getBlock()) {
-                continue;
-            }
-            count++;
-            if (count >= ChainBreakConfig.maxBlocks) {
-                break;
-            }
+        List<BlockPos> candidates = ChainBreakPreview.candidates(mc);
+        if (candidates == null) {
+            return 0; // 起始方块不合格
         }
         // 加上玩家手动挖掉的起始方块（FTB 显示的是总数）
-        return count + 1;
-    }
-
-    /** 客户端版矿脉 BFS（与服务端 collectVein 一致）。 */
-    private List<BlockPos> collectVeinClient(Minecraft mc, BlockPos pos, BlockState origin, ItemStack tool) {
-        int limit = ChainBreakConfig.maxBlocks;
-        int budget = limit * 8 + 64;
-        boolean anyBlock = ChainBreakConfig.shapelessAnyBlock;
-
-        List<BlockPos> out = new ArrayList<>(Math.min(limit, 64));
-        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
-        Set<BlockPos> visited = new HashSet<>();
-
-        BlockPos start = pos.immutable();
-        visited.add(start);
-        queue.add(start);
-
-        while (!queue.isEmpty() && out.size() < limit && budget-- > 0) {
-            BlockPos current = queue.poll();
-            for (Direction dir : Direction.values()) {
-                if (out.size() >= limit) {
-                    break;
-                }
-                BlockPos next = current.relative(dir);
-                if (!visited.add(next)) {
-                    continue;
-                }
-                BlockState s = mc.level.getBlockState(next);
-                if (!candidateOk(mc, s, next, tool)) {
-                    continue;
-                }
-                if (!anyBlock && s.getBlock() != origin.getBlock()) {
-                    continue;
-                }
-                out.add(next);
-                queue.add(next);
-            }
-        }
-        return out;
-    }
-
-    /** 候选方块过滤（客户端版，与服务端 isCandidate 一致）。 */
-    private boolean candidateOk(Minecraft mc, BlockState state, BlockPos pos, ItemStack tool) {
-        if (state.isAir()) {
-            return false;
-        }
-        if (state.getDestroySpeed(mc.level, pos) < 0.0F) {
-            return false;
-        }
-        String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
-        if (ChainBreakConfig.blacklist.contains(id)) {
-            return false;
-        }
-        if (ChainBreakConfig.requireValidToolForBlock
-                && !tool.isEmpty()
-                && state.requiresCorrectToolForDrops()
-                && !tool.isCorrectToolForDrops(state)) {
-            return false;
-        }
-        return true;
+        return candidates.size() + 1;
     }
 }
