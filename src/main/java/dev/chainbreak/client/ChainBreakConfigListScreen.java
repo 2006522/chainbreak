@@ -3,10 +3,12 @@ package dev.chainbreak.client;
 import dev.chainbreak.ChainBreakConfig;
 import dev.chainbreak.ChainBreakState;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
 
@@ -215,10 +217,13 @@ public class ChainBreakConfigListScreen extends Screen {
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g) {
+        int left = this.width / 2 - PANEL_WIDTH / 2;
+        // 面板底色必须先画：否则会盖住输入框，看起来"输入框没有边框、点不动"
+        g.fill(left - PAD, this.panelTop - PAD, left + PANEL_WIDTH + PAD, this.panelBottom, COL_BG);
+
+        // 控件（含输入框）画在底色之上
         super.extractRenderState(g);
 
-        int left = this.width / 2 - PANEL_WIDTH / 2;
-        g.fill(left - PAD, this.panelTop - PAD, left + PANEL_WIDTH + PAD, this.panelBottom, COL_BG);
         g.text(this.font, this.title, left, this.panelTop, COL_GROUP);
 
         for (Line line : lines) {
@@ -226,9 +231,12 @@ public class ChainBreakConfigListScreen extends Screen {
                 g.text(this.font, Component.literal("▼ " + line.label), left, line.y, COL_GROUP);
             } else {
                 g.text(this.font, Component.literal(line.label), left, line.y, COL_LABEL);
-                String v = line.value.get();
-                g.text(this.font, Component.literal(v),
-                        left + PANEL_WIDTH - PAD - this.font.width(v), line.y, line.color.get());
+                // 数字行的值由输入框自己显示，这里不重复画（否则会盖在框上）
+                if (line.type != 3) {
+                    String v = line.value.get();
+                    g.text(this.font, Component.literal(v),
+                            left + PANEL_WIDTH - PAD - this.font.width(v), line.y, line.color.get());
+                }
             }
         }
     }
@@ -239,13 +247,36 @@ public class ChainBreakConfigListScreen extends Screen {
         if (event.isLeftMouse()
                 && event.x() >= left && event.x() <= left + PANEL_WIDTH) {
             for (Line line : lines) {
-                if (line.click != null && event.y() >= line.y && event.y() < line.y + LINE) {
+                if (event.y() < line.y || event.y() >= line.y + LINE) {
+                    continue;
+                }
+                if (line.click != null) {
                     line.click.run();
+                    return true;
+                }
+                if (line.type == 3 && line.box != null) {
+                    // 点这一行任意位置都能编辑，不用精确点到小框
+                    for (Line other : lines) {
+                        if (other != line && other.box != null) {
+                            other.box.setFocused(false);
+                        }
+                    }
+                    line.box.setFocused(true);
+                    line.box.setCursorPosition(line.box.getValue().length());
                     return true;
                 }
             }
         }
         return super.mouseClicked(event, doubled);
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        if (event.key() == InputConstants.KEY_RETURN || event.key() == InputConstants.KEY_NUMPADENTER) {
+            this.commit();
+            return true;
+        }
+        return super.keyPressed(event);
     }
 
     @Override
