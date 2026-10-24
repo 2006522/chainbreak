@@ -57,6 +57,9 @@ public final class ChainBreakConfig {
     public static Set<String> blacklist = new LinkedHashSet<>(Arrays.asList("minecraft:bedrock", "minecraft:barrier"));
     /** 额外允许当作"工具"的物品 id。 */
     public static Set<String> includedTools = new LinkedHashSet<>();
+    /** 背包界面里那个 ⚙ 设置的屏幕坐标（可拖动改变）。 */
+    public static int buttonX = 4;
+    public static int buttonY = 4;
     /** 禁止触发连锁的物品 id。 */
     public static Set<String> excludedTools = new LinkedHashSet<>();
 
@@ -177,6 +180,8 @@ public final class ChainBreakConfig {
         cancelOnBlockBreakFail = b(p, "cancel_on_block_break_fail", cancelOnBlockBreakFail);
         feedback = b(p, "feedback", feedback);
         dropMode = str(p, "drop_mode", dropMode).trim().toLowerCase();
+        buttonX = i(p, "button_x", buttonX);
+        buttonY = i(p, "button_y", buttonY);
         blacklist = set(p, "blacklist", blacklist);
         includedTools = set(p, "included_tools", includedTools);
         excludedTools = set(p, "excluded_tools", excludedTools);
@@ -210,6 +215,8 @@ public final class ChainBreakConfig {
             out.setProperty("cancel_on_block_break_fail", Boolean.toString(cancelOnBlockBreakFail));
             out.setProperty("feedback", Boolean.toString(feedback));
             out.setProperty("drop_mode", dropMode);
+            out.setProperty("button_x", Integer.toString(buttonX));
+            out.setProperty("button_y", Integer.toString(buttonY));
             out.setProperty("blacklist", String.join(",", blacklist));
             out.setProperty("included_tools", String.join(",", includedTools));
             out.setProperty("excluded_tools", String.join(",", excludedTools));

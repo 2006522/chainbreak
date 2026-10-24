@@ -240,6 +240,8 @@ public class ChainBreakConfigListScreen extends Screen {
         try {
             double value = Double.parseDouble(text);
             target.commit.accept(value);
+            // 改完立刻落盘，避免"没点确认就退出游戏 → 白改"
+            ChainBreakConfig.save();
             ChainBreak.LOGGER.log(System.Logger.Level.INFO, "配置已修改：" + target.label + " = " + text);
         } catch (NumberFormatException ignored) {
             // 非法输入保持原值
@@ -306,6 +308,8 @@ public class ChainBreakConfigListScreen extends Screen {
                 }
                 if (line.click != null) {
                     line.click.run();
+                    // 布尔 / 枚举同样是改完就存
+                    ChainBreakConfig.save();
                     return true;
                 }
                 if (line.type == 3) {
@@ -373,6 +377,7 @@ public class ChainBreakConfigListScreen extends Screen {
 
     @Override
     public void onClose() {
+        applyEdit();
         endTextInput();
         if (this.minecraft != null) {
             this.minecraft.setScreenAndShow(this.parent);
