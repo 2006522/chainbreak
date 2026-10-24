@@ -1,10 +1,10 @@
 # 连锁挖矿(Chain Break)
 
-一个 Minecraft **Fabric** 模组，按住激活键（默认 `` ` ``）挖掘即可一次性挖掉相连的方块，对齐 FTB Ultimine 的核心体验。单人游戏和联机都能用。
+一个 Minecraft **Fabric** 模组，按住激活键（默认 `` ` ``）挖掘即可一次性挖掉相连的方块，对齐 FTB Ultimine 的核心体验。单人存档用。
 
 ## 下载
 
-**[⬇ chainbreak-4.0.10.mc26.4.jar](https://github.com/2006522/chainbreak/releases/download/v4.0.10/chainbreak-4.0.10.mc26.4.jar)**
+**[⬇ chainbreak-4.0.11.mc26.4.jar](https://github.com/2006522/chainbreak/releases/download/v4.0.11/chainbreak-4.0.11.mc26.4.jar)**
 
 更新说明见 [CHANGELOG](CHANGELOG.md)。
 
