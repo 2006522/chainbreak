@@ -147,6 +147,30 @@ public final class ChainBreakConfig {
         return out;
     }
 
+    /** 把所有选项恢复成出厂默认（界面上的「恢复默认」按钮用）。 */
+    public static void restoreDefaults() {
+        shape = "shapeless";
+        trigger = "key";
+        maxBlocks = 128;
+        requireTool = false;
+        requireValidToolForBlock = false;
+        shapedAnyBlock = true;
+        shapelessAnyBlock = false;
+        exhaustionPerBlock = 0.005D;
+        experiencePerBlock = 0.0D;
+        cooldownTicks = 0;
+        preventToolBreak = 1;
+        cancelOnBlockBreakFail = false;
+        feedback = true;
+        dropMode = "normal";
+        blacklist = new LinkedHashSet<>(Arrays.asList("minecraft:bedrock", "minecraft:barrier"));
+        includedTools = new LinkedHashSet<>();
+        excludedTools = new LinkedHashSet<>();
+        buttonX = 4;
+        buttonY = 4;
+        rebuildIndexes();
+    }
+
     public static void loadIfNeeded() {
         if (loaded) {
             return;

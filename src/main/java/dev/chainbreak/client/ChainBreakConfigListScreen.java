@@ -1,7 +1,7 @@
 package dev.chainbreak.client;
 
-import dev.chainbreak.ChainBreakConfig;
 import dev.chainbreak.ChainBreak;
+import dev.chainbreak.ChainBreakConfig;
 import dev.chainbreak.ChainBreakState;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -20,10 +20,10 @@ import java.util.function.Supplier;
 
 /**
  * 配置列表界面（对标 FTB Library 的配置编辑器样式）：
- * 分组标题（绿色）、配置行（左名称 / 右彩色值）、底部确认 / 取消。
+ * 分组标题（绿色）、配置行（左名称 / 右值）、底部按钮。
  *
- * <p>布尔与枚举行点击切换；数字行点击后进入行内编辑（自己接管键盘，
- * 不依赖原版 {@code EditBox}，避免绘制层级和焦点带来的"点不动"问题）。</p>
+ * <p>布尔与枚举行点击切换；数字行是真·行内编辑：点一下定位光标、按住拖动可以框选，
+ * 打字替换选区，方向键 / Home / End 移动光标。改完不用按回车——点别处或关界面就生效并落盘。</p>
  */
 public class ChainBreakConfigListScreen extends Screen {
 
@@ -43,6 +43,8 @@ public class ChainBreakConfigListScreen extends Screen {
     private static final int COL_BOX = 0xFF000000;
     private static final int COL_BOX_EDIT = 0xFF303040;
     private static final int COL_BORDER = 0xFF8B8B8B;
+    private static final int COL_SELECTION = 0x804A80FF;
+    private static final int COL_CARET = 0xFFFFFFFF;
 
     /** 一行配置。type: 0=分组 1=布尔 2=枚举 3=数字 4=只读 */
     private static final class Line {
@@ -68,9 +70,14 @@ public class ChainBreakConfigListScreen extends Screen {
     private final List<Line> lines = new ArrayList<>();
     private int panelTop;
     private int panelBottom;
-    /** 正在编辑的数字行与输入缓冲。 */
+
+    /** 正在编辑的数字行 + 文本编辑状态。 */
     private Line editing;
     private String buffer = "";
+    private int caret;
+    /** 选区起点，-1 表示没有选区。 */
+    private int selectionAnchor = -1;
+    private boolean selecting;
 
     public ChainBreakConfigListScreen(boolean server, Screen parent) {
         super(Component.literal(server ? "服务端设置" : "客户端设置"));
@@ -81,8 +88,7 @@ public class ChainBreakConfigListScreen extends Screen {
     @Override
     protected void init() {
         lines.clear();
-        editing = null;
-        buffer = "";
+        clearEditing();
 
         if (server) {
             addGroup("功能");
@@ -141,9 +147,9 @@ public class ChainBreakConfigListScreen extends Screen {
         this.panelBottom = bottom + 26;
 
         int cx = this.width / 2;
-        addRenderableWidget(Button.builder(Component.literal("✔ 确认"), b -> this.commit())
+        addRenderableWidget(Button.builder(Component.literal("✔ 完成"), b -> this.closeWithSave())
                 .bounds(cx - 104, bottom, 100, 20).build());
-        addRenderableWidget(Button.builder(Component.literal("✘ 取消"), b -> this.cancel())
+        addRenderableWidget(Button.builder(Component.literal("↺ 恢复默认"), b -> this.restoreDefaults())
                 .bounds(cx + 4, bottom, 100, 20).build());
     }
 
@@ -195,23 +201,17 @@ public class ChainBreakConfigListScreen extends Screen {
                 ? Long.toString((long) v) : Double.toString(v);
     }
 
-    private void commit() {
-        applyEdit();
-        ChainBreakConfig.save();
-        this.onClose();
-    }
+    // ---------------------------------------------------------------- 编辑状态
 
-    private void cancel() {
+    private void clearEditing() {
         editing = null;
-        endTextInput();
-        ChainBreakConfig.reload();
-        this.onClose();
+        buffer = "";
+        caret = 0;
+        selectionAnchor = -1;
+        selecting = false;
     }
 
-    /**
-     * 进入编辑：必须显式开启文本输入，否则 SDL 只发按键事件、不产生字符事件，
-     * 表现就是"退格能删、打数字没反应"。
-     */
+    /** 进入编辑：必须显式开启文本输入，否则 SDL 只发按键事件、不产生字符事件。 */
     private void beginEditing(Line line) {
         applyEdit();
         if (this.minecraft != null) {
@@ -219,6 +219,9 @@ public class ChainBreakConfigListScreen extends Screen {
         }
         editing = line;
         buffer = line.value.get();
+        caret = buffer.length();
+        selectionAnchor = -1;
+        selecting = true;
     }
 
     private void endTextInput() {
@@ -227,26 +230,68 @@ public class ChainBreakConfigListScreen extends Screen {
         }
     }
 
-    /** 把编辑中的文本写回配置。 */
+    private boolean hasSelection() {
+        return selectionAnchor >= 0 && selectionAnchor != caret;
+    }
+
+    private int selStart() {
+        return hasSelection() ? Math.min(selectionAnchor, caret) : caret;
+    }
+
+    private int selEnd() {
+        return hasSelection() ? Math.max(selectionAnchor, caret) : caret;
+    }
+
+    private void deleteSelection() {
+        if (!hasSelection()) {
+            return;
+        }
+        int from = selStart();
+        int to = selEnd();
+        buffer = buffer.substring(0, from) + buffer.substring(to);
+        caret = from;
+        selectionAnchor = -1;
+    }
+
+    /** 把编辑中的文本写回配置并落盘。 */
     private void applyEdit() {
         Line target = editing;
         String text = buffer.trim();
-        editing = null;
-        buffer = "";
+        clearEditing();
+        endTextInput();
         if (target == null || target.commit == null || text.isEmpty()) {
             return;
         }
-        endTextInput();
         try {
-            double value = Double.parseDouble(text);
-            target.commit.accept(value);
-            // 改完立刻落盘，避免"没点确认就退出游戏 → 白改"
+            target.commit.accept(Double.parseDouble(text));
             ChainBreakConfig.save();
             ChainBreak.LOGGER.log(System.Logger.Level.INFO, "配置已修改：" + target.label + " = " + text);
         } catch (NumberFormatException ignored) {
             // 非法输入保持原值
         }
     }
+
+    private void cancelEdit() {
+        clearEditing();
+        endTextInput();
+    }
+
+    private void closeWithSave() {
+        applyEdit();
+        ChainBreakConfig.save();
+        this.onClose();
+    }
+
+    private void restoreDefaults() {
+        cancelEdit();
+        ChainBreakConfig.restoreDefaults();
+        ChainBreakConfig.save();
+        if (this.minecraft != null) {
+            this.minecraft.setScreenAndShow(new ChainBreakConfigListScreen(this.server, this.parent));
+        }
+    }
+
+    // ---------------------------------------------------------------- 渲染
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g) {
@@ -265,7 +310,7 @@ public class ChainBreakConfigListScreen extends Screen {
             }
             g.text(this.font, Component.literal(line.label), left, line.y, COL_LABEL);
             if (line.type == 3) {
-                drawBox(g, line, left);
+                drawBox(g, line);
             } else {
                 String v = line.value.get();
                 g.text(this.font, Component.literal(v),
@@ -274,28 +319,72 @@ public class ChainBreakConfigListScreen extends Screen {
         }
     }
 
-    /** 数字行右侧的小输入框：自己画，自己管光标。 */
-    private void drawBox(GuiGraphicsExtractor g, Line line, int left) {
-        int x = left + PANEL_WIDTH - PAD - BOX_WIDTH;
+    private int boxLeft() {
+        return this.width / 2 - PANEL_WIDTH / 2 + PANEL_WIDTH - PAD - BOX_WIDTH;
+    }
+
+    /** 保证光标可见的水平滚动量（渲染和命中测试共用，避免两边不一致）。 */
+    private int scrollPx() {
+        if (editing == null) {
+            return 0;
+        }
+        int caretW = this.font.width(buffer.substring(0, Math.max(0, Math.min(caret, buffer.length()))));
+        return Math.max(0, caretW - (BOX_WIDTH - 8));
+    }
+
+    private void drawBox(GuiGraphicsExtractor g, Line line) {
+        int x = boxLeft();
         int top = line.y - 1;
         int bottom = top + 12;
         boolean active = editing == line;
+
         g.fill(x, top, x + BOX_WIDTH, bottom, active ? COL_BOX_EDIT : COL_BOX);
         g.fill(x, top, x + BOX_WIDTH, top + 1, COL_BORDER);
         g.fill(x, bottom - 1, x + BOX_WIDTH, bottom, COL_BORDER);
         g.fill(x, top, x + 1, bottom, COL_BORDER);
         g.fill(x + BOX_WIDTH - 1, top, x + BOX_WIDTH, bottom, COL_BORDER);
 
-        String text = active ? buffer : line.value.get();
-        if (active && (System.currentTimeMillis() / 500) % 2 == 0) {
-            text = text + "_";
+        int textY = line.y + 1;
+        if (!active) {
+            String shown = line.value.get();
+            while (this.font.width(shown) > BOX_WIDTH - 8 && shown.length() > 1) {
+                shown = shown.substring(1);
+            }
+            g.text(this.font, Component.literal(shown), x + 3, textY, 0xFFFFFFFF);
+            return;
         }
-        int maxWidth = BOX_WIDTH - 6;
-        while (this.font.width(text) > maxWidth && text.length() > 1) {
-            text = text.substring(1);
+
+        int scroll = scrollPx();
+        int innerX = x + 3 - scroll;
+        g.enableScissor(x + 1, top + 1, x + BOX_WIDTH - 1, bottom - 1);
+        if (hasSelection()) {
+            int x1 = innerX + this.font.width(buffer.substring(0, selStart()));
+            int x2 = innerX + this.font.width(buffer.substring(0, selEnd()));
+            g.fill(x1, top + 2, x2, bottom - 2, COL_SELECTION);
         }
-        g.text(this.font, Component.literal(text), x + 3, line.y + 1,
-                active ? 0xFFFFFF55 : 0xFFFFFFFF);
+        g.text(this.font, Component.literal(buffer), innerX, textY, 0xFFFFFF55);
+        if ((System.currentTimeMillis() / 500) % 2 == 0) {
+            int caretX = innerX + this.font.width(buffer.substring(0, Math.max(0, Math.min(caret, buffer.length()))));
+            g.fill(caretX, top + 2, caretX + 1, bottom - 2, COL_CARET);
+        }
+        g.disableScissor();
+    }
+
+    // ---------------------------------------------------------------- 输入
+
+    /** 鼠标横坐标换算成字符下标。 */
+    private int charIndexAt(double mouseX) {
+        int innerX = boxLeft() + 3 - scrollPx();
+        double rel = mouseX - innerX;
+        int acc = 0;
+        for (int i = 0; i < buffer.length(); i++) {
+            int w = this.font.width(String.valueOf(buffer.charAt(i)));
+            if (rel < acc + w / 2.0) {
+                return i;
+            }
+            acc += w;
+        }
+        return buffer.length();
     }
 
     @Override
@@ -307,13 +396,23 @@ public class ChainBreakConfigListScreen extends Screen {
                     continue;
                 }
                 if (line.click != null) {
+                    applyEdit();
                     line.click.run();
-                    // 布尔 / 枚举同样是改完就存
                     ChainBreakConfig.save();
                     return true;
                 }
                 if (line.type == 3) {
-                    beginEditing(line);
+                    if (editing != line) {
+                        beginEditing(line);
+                    }
+                    // 点哪里光标就落哪里，并从这里开始框选
+                    caret = charIndexAt(event.x());
+                    selectionAnchor = caret;
+                    selecting = true;
+                    return true;
+                }
+                if (line.type == 0 || line.type == 4) {
+                    applyEdit();
                     return true;
                 }
             }
@@ -323,31 +422,77 @@ public class ChainBreakConfigListScreen extends Screen {
     }
 
     @Override
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
+        if (editing != null && selecting) {
+            caret = charIndexAt(event.x());
+            return true;
+        }
+        return super.mouseDragged(event, deltaX, deltaY);
+    }
+
+    @Override
+    public boolean mouseReleased(MouseButtonEvent event) {
+        selecting = false;
+        return super.mouseReleased(event);
+    }
+
+    @Override
     public boolean keyPressed(KeyEvent event) {
         int key = event.key();
         if (editing != null) {
-            if (key == InputConstants.KEY_ESCAPE) {
-                editing = null;
-                buffer = "";
-                endTextInput();
-                return true;
-            }
-            if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
-                applyEdit();
-                return true;
-            }
-            if (key == InputConstants.KEY_BACKSPACE) {
-                if (!buffer.isEmpty()) {
-                    buffer = buffer.substring(0, buffer.length() - 1);
+            switch (key) {
+                case InputConstants.KEY_ESCAPE -> {
+                    cancelEdit();
+                    return true;
                 }
-                return true;
+                case InputConstants.KEY_RETURN, InputConstants.KEY_NUMPADENTER -> {
+                    applyEdit();
+                    return true;
+                }
+                case InputConstants.KEY_BACKSPACE -> {
+                    if (hasSelection()) {
+                        deleteSelection();
+                    } else if (caret > 0) {
+                        buffer = buffer.substring(0, caret - 1) + buffer.substring(caret);
+                        caret--;
+                    }
+                    return true;
+                }
+                case InputConstants.KEY_DELETE -> {
+                    if (hasSelection()) {
+                        deleteSelection();
+                    } else if (caret < buffer.length()) {
+                        buffer = buffer.substring(0, caret) + buffer.substring(caret + 1);
+                    }
+                    return true;
+                }
+                case InputConstants.KEY_LEFT -> {
+                    caret = Math.max(0, hasSelection() ? selStart() : caret - 1);
+                    selectionAnchor = -1;
+                    return true;
+                }
+                case InputConstants.KEY_RIGHT -> {
+                    caret = Math.min(buffer.length(), hasSelection() ? selEnd() : caret + 1);
+                    selectionAnchor = -1;
+                    return true;
+                }
+                case InputConstants.KEY_HOME -> {
+                    caret = 0;
+                    selectionAnchor = -1;
+                    return true;
+                }
+                case InputConstants.KEY_END -> {
+                    caret = buffer.length();
+                    selectionAnchor = -1;
+                    return true;
+                }
+                default -> {
+                    return true;
+                }
             }
-            // 字符输入统一走 charTyped（文本输入已开启），这里不再重复处理，
-            // 否则一次按键会被加两次（打 6 显示 66）
-            return true;
         }
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
-            this.commit();
+            closeWithSave();
             return true;
         }
         return super.keyPressed(event);
@@ -359,10 +504,14 @@ public class ChainBreakConfigListScreen extends Screen {
             String typed = event.codepointAsString();
             if (typed.length() == 1) {
                 char c = typed.charAt(0);
-                if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+                boolean allowed = (c >= '0' && c <= '9') || c == '.' || c == '-';
+                if (allowed) {
+                    deleteSelection();
                     if (buffer.length() < 16) {
-                        buffer = buffer + c;
+                        buffer = buffer.substring(0, caret) + c + buffer.substring(caret);
+                        caret++;
                     }
+                    selectionAnchor = -1;
                 }
             }
             return true;
@@ -379,6 +528,7 @@ public class ChainBreakConfigListScreen extends Screen {
     public void onClose() {
         applyEdit();
         endTextInput();
+        ChainBreakConfig.save();
         if (this.minecraft != null) {
             this.minecraft.setScreenAndShow(this.parent);
         }
