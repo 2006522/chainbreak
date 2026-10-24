@@ -6,8 +6,8 @@ import dev.chainbreak.ChainBreakState;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.network.chat.Component;
@@ -20,13 +20,16 @@ import java.util.function.Supplier;
 /**
  * 配置列表界面（对标 FTB Library 的配置编辑器样式）：
  * 分组标题（绿色）、配置行（左名称 / 右彩色值）、底部确认 / 取消。
- * 布尔与枚举行点击切换；数字行右侧有输入框，点确认时提交。
+ *
+ * <p>布尔与枚举行点击切换；数字行点击后进入行内编辑（自己接管键盘，
+ * 不依赖原版 {@code EditBox}，避免绘制层级和焦点带来的"点不动"问题）。</p>
  */
 public class ChainBreakConfigListScreen extends Screen {
 
     private static final int LINE = 12;
     private static final int PAD = 6;
     private static final int PANEL_WIDTH = 320;
+    private static final int BOX_WIDTH = 64;
 
     private static final int COL_TRUE = 0xFF55FF55;
     private static final int COL_FALSE = 0xFFFF5555;
@@ -36,6 +39,9 @@ public class ChainBreakConfigListScreen extends Screen {
     private static final int COL_LABEL = 0xFFFFFFFF;
     private static final int COL_READONLY = 0xFF808080;
     private static final int COL_BG = 0x90000000;
+    private static final int COL_BOX = 0xFF000000;
+    private static final int COL_BOX_EDIT = 0xFF303040;
+    private static final int COL_BORDER = 0xFF8B8B8B;
 
     /** 一行配置。type: 0=分组 1=布尔 2=枚举 3=数字 4=只读 */
     private static final class Line {
@@ -44,7 +50,6 @@ public class ChainBreakConfigListScreen extends Screen {
         final Runnable click;
         final Supplier<String> value;
         final Supplier<Integer> color;
-        EditBox box;
         Consumer<Double> commit;
         int y;
 
@@ -62,6 +67,9 @@ public class ChainBreakConfigListScreen extends Screen {
     private final List<Line> lines = new ArrayList<>();
     private int panelTop;
     private int panelBottom;
+    /** 正在编辑的数字行与输入缓冲。 */
+    private Line editing;
+    private String buffer = "";
 
     public ChainBreakConfigListScreen(boolean server, Screen parent) {
         super(Component.literal(server ? "服务端设置" : "客户端设置"));
@@ -72,6 +80,8 @@ public class ChainBreakConfigListScreen extends Screen {
     @Override
     protected void init() {
         lines.clear();
+        editing = null;
+        buffer = "";
 
         if (server) {
             addGroup("功能");
@@ -89,15 +99,15 @@ public class ChainBreakConfigListScreen extends Screen {
 
             addGroup("消耗与限制");
             addNum("单次最大方块数", () -> ChainBreakConfig.maxBlocks,
-                    v -> ChainBreakConfig.maxBlocks = (int) clamp(v, 1, 1024), 1, 1024, true);
+                    v -> ChainBreakConfig.maxBlocks = (int) clamp(v, 1, 1024));
             addNum("每方块饥饿消耗", () -> ChainBreakConfig.exhaustionPerBlock,
-                    v -> ChainBreakConfig.exhaustionPerBlock = clamp(v, 0, 100), 0, 100, false);
+                    v -> ChainBreakConfig.exhaustionPerBlock = clamp(v, 0, 100));
             addNum("每方块经验消耗", () -> ChainBreakConfig.experiencePerBlock,
-                    v -> ChainBreakConfig.experiencePerBlock = clamp(v, 0, 100), 0, 100, false);
+                    v -> ChainBreakConfig.experiencePerBlock = clamp(v, 0, 100));
             addNum("连锁冷却（刻）", () -> ChainBreakConfig.cooldownTicks,
-                    v -> ChainBreakConfig.cooldownTicks = (int) clamp(v, 0, 72000), 0, 72000, true);
+                    v -> ChainBreakConfig.cooldownTicks = (int) clamp(v, 0, 72000));
             addNum("工具耐久保护", () -> ChainBreakConfig.preventToolBreak,
-                    v -> ChainBreakConfig.preventToolBreak = (int) clamp(v, 0, 10000), 0, 10000, true);
+                    v -> ChainBreakConfig.preventToolBreak = (int) clamp(v, 0, 10000));
             addEnum("掉落方式", () -> ChainBreakConfig.dropMode,
                     v -> ChainBreakConfig.dropMode = v,
                     new String[]{"normal", "inventory", "feet"},
@@ -119,20 +129,9 @@ public class ChainBreakConfigListScreen extends Screen {
         // 布局：面板居中
         int contentHeight = 16 + lines.stream().mapToInt(l -> l.type == 0 ? LINE + 2 : LINE).sum();
         int top = Math.max(18, this.height / 2 - (contentHeight + 34) / 2);
-        int left = this.width / 2 - PANEL_WIDTH / 2;
-        int boxWidth = 64;
-
         int y = top + 16;
         for (Line line : lines) {
             line.y = y;
-            if (line.type == 3) {
-                EditBox box = new EditBox(this.font, left + PANEL_WIDTH - PAD - boxWidth,
-                        y - 1, boxWidth, 11, Component.literal(line.label));
-                box.setValue(line.value.get());
-                box.setMaxLength(16);
-                line.box = box;
-                addRenderableWidget(box);
-            }
             y += line.type == 0 ? LINE + 2 : LINE;
         }
 
@@ -179,8 +178,7 @@ public class ChainBreakConfigListScreen extends Screen {
                 () -> COL_ENUM));
     }
 
-    private void addNum(String label, Supplier<Number> get, Consumer<Double> set,
-                        double min, double max, boolean integral) {
+    private void addNum(String label, Supplier<Number> get, Consumer<Double> set) {
         Line line = new Line(3, label, null,
                 () -> fmt(get.get().doubleValue()), () -> COL_NUM);
         line.commit = set;
@@ -197,31 +195,39 @@ public class ChainBreakConfigListScreen extends Screen {
     }
 
     private void commit() {
-        for (Line line : lines) {
-            if (line.type == 3 && line.box != null && line.commit != null) {
-                try {
-                    line.commit.accept(Double.parseDouble(line.box.getValue().trim()));
-                } catch (NumberFormatException ignored) {
-                    // 非法输入保持原值
-                }
-            }
-        }
+        applyEdit();
         ChainBreakConfig.save();
         this.onClose();
     }
 
     private void cancel() {
+        editing = null;
         ChainBreakConfig.reload();
         this.onClose();
+    }
+
+    /** 把编辑中的文本写回配置。 */
+    private void applyEdit() {
+        Line target = editing;
+        String text = buffer.trim();
+        editing = null;
+        buffer = "";
+        if (target == null || target.commit == null || text.isEmpty()) {
+            return;
+        }
+        try {
+            target.commit.accept(Double.parseDouble(text));
+        } catch (NumberFormatException ignored) {
+            // 非法输入保持原值
+        }
     }
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g) {
         int left = this.width / 2 - PANEL_WIDTH / 2;
-        // 面板底色必须先画：否则会盖住输入框，看起来"输入框没有边框、点不动"
+        // 底色先画，否则会盖住控件
         g.fill(left - PAD, this.panelTop - PAD, left + PANEL_WIDTH + PAD, this.panelBottom, COL_BG);
 
-        // 控件（含输入框）画在底色之上
         super.extractRenderState(g);
 
         g.text(this.font, this.title, left, this.panelTop, COL_GROUP);
@@ -229,23 +235,47 @@ public class ChainBreakConfigListScreen extends Screen {
         for (Line line : lines) {
             if (line.type == 0) {
                 g.text(this.font, Component.literal("▼ " + line.label), left, line.y, COL_GROUP);
+                continue;
+            }
+            g.text(this.font, Component.literal(line.label), left, line.y, COL_LABEL);
+            if (line.type == 3) {
+                drawBox(g, line, left);
             } else {
-                g.text(this.font, Component.literal(line.label), left, line.y, COL_LABEL);
-                // 数字行的值由输入框自己显示，这里不重复画（否则会盖在框上）
-                if (line.type != 3) {
-                    String v = line.value.get();
-                    g.text(this.font, Component.literal(v),
-                            left + PANEL_WIDTH - PAD - this.font.width(v), line.y, line.color.get());
-                }
+                String v = line.value.get();
+                g.text(this.font, Component.literal(v),
+                        left + PANEL_WIDTH - PAD - this.font.width(v), line.y, line.color.get());
             }
         }
+    }
+
+    /** 数字行右侧的小输入框：自己画，自己管光标。 */
+    private void drawBox(GuiGraphicsExtractor g, Line line, int left) {
+        int x = left + PANEL_WIDTH - PAD - BOX_WIDTH;
+        int top = line.y - 1;
+        int bottom = top + 12;
+        boolean active = editing == line;
+        g.fill(x, top, x + BOX_WIDTH, bottom, active ? COL_BOX_EDIT : COL_BOX);
+        g.fill(x, top, x + BOX_WIDTH, top + 1, COL_BORDER);
+        g.fill(x, bottom - 1, x + BOX_WIDTH, bottom, COL_BORDER);
+        g.fill(x, top, x + 1, bottom, COL_BORDER);
+        g.fill(x + BOX_WIDTH - 1, top, x + BOX_WIDTH, bottom, COL_BORDER);
+
+        String text = active ? buffer : line.value.get();
+        if (active && (System.currentTimeMillis() / 500) % 2 == 0) {
+            text = text + "_";
+        }
+        int maxWidth = BOX_WIDTH - 6;
+        while (this.font.width(text) > maxWidth && text.length() > 1) {
+            text = text.substring(1);
+        }
+        g.text(this.font, Component.literal(text), x + 3, line.y + 1,
+                active ? 0xFFFFFF55 : 0xFFFFFFFF);
     }
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubled) {
         int left = this.width / 2 - PANEL_WIDTH / 2;
-        if (event.isLeftMouse()
-                && event.x() >= left && event.x() <= left + PANEL_WIDTH) {
+        if (event.isLeftMouse() && event.x() >= left && event.x() <= left + PANEL_WIDTH) {
             for (Line line : lines) {
                 if (event.y() < line.y || event.y() >= line.y + LINE) {
                     continue;
@@ -254,29 +284,62 @@ public class ChainBreakConfigListScreen extends Screen {
                     line.click.run();
                     return true;
                 }
-                if (line.type == 3 && line.box != null) {
-                    // 点这一行任意位置都能编辑，不用精确点到小框
-                    for (Line other : lines) {
-                        if (other != line && other.box != null) {
-                            other.box.setFocused(false);
-                        }
-                    }
-                    line.box.setFocused(true);
-                    line.box.setCursorPosition(line.box.getValue().length());
+                if (line.type == 3) {
+                    applyEdit();
+                    editing = line;
+                    buffer = line.value.get();
                     return true;
                 }
             }
         }
+        applyEdit();
         return super.mouseClicked(event, doubled);
     }
 
     @Override
     public boolean keyPressed(KeyEvent event) {
-        if (event.key() == InputConstants.KEY_RETURN || event.key() == InputConstants.KEY_NUMPADENTER) {
+        int key = event.key();
+        if (editing != null) {
+            if (key == InputConstants.KEY_ESCAPE) {
+                editing = null;
+                buffer = "";
+                return true;
+            }
+            if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
+                applyEdit();
+                return true;
+            }
+            if (key == InputConstants.KEY_BACKSPACE) {
+                if (!buffer.isEmpty()) {
+                    buffer = buffer.substring(0, buffer.length() - 1);
+                }
+                return true;
+            }
+            // 编辑期间吞掉其它按键，避免误触发界面行为
+            return true;
+        }
+        if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
             this.commit();
             return true;
         }
         return super.keyPressed(event);
+    }
+
+    @Override
+    public boolean charTyped(CharacterEvent event) {
+        if (editing != null) {
+            String typed = event.codepointAsString();
+            if (typed.length() == 1) {
+                char c = typed.charAt(0);
+                if ((c >= '0' && c <= '9') || c == '.' || c == '-') {
+                    if (buffer.length() < 16) {
+                        buffer = buffer + c;
+                    }
+                }
+            }
+            return true;
+        }
+        return super.charTyped(event);
     }
 
     @Override

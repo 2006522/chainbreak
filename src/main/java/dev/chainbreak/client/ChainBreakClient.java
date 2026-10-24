@@ -2,6 +2,7 @@ package dev.chainbreak.client;
 
 import dev.chainbreak.ChainBreakState;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
@@ -25,15 +26,15 @@ public class ChainBreakClient implements ClientModInitializer {
     public void onInitializeClient() {
         KeyMapping.Category category = KeyMapping.Category.register(Identifier.parse("chainbreak"));
 
-        // 96 = GLFW_KEY_GRAVE_ACCENT（`），91 = [，93 = ]，75 = K
+        // 26.x 起输入走 SDL，KeyMapping 要的是 SDL 扫描码，不能用 GLFW 的 96/91/93/75
         activateKey = KeyMappingHelper.registerKeyMapping(
-                new KeyMapping("key.chainbreak.activate", 96, category));
+                new KeyMapping("key.chainbreak.activate", InputConstants.KEY_GRAVE, category));
         shapePrevKey = KeyMappingHelper.registerKeyMapping(
-                new KeyMapping("key.chainbreak.shape_prev", 91, category));
+                new KeyMapping("key.chainbreak.shape_prev", InputConstants.KEY_LBRACKET, category));
         shapeNextKey = KeyMappingHelper.registerKeyMapping(
-                new KeyMapping("key.chainbreak.shape_next", 93, category));
+                new KeyMapping("key.chainbreak.shape_next", InputConstants.KEY_RBRACKET, category));
         configKey = KeyMappingHelper.registerKeyMapping(
-                new KeyMapping("key.chainbreak.config", 75, category));
+                new KeyMapping("key.chainbreak.config", InputConstants.KEY_K, category));
 
         // 注册形状菜单 HUD
         HudElementRegistry.addLast(Identifier.parse("chainbreak:shape_hud"), new ChainBreakHud());
