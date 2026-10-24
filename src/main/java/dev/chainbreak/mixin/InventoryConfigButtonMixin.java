@@ -3,7 +3,6 @@ package dev.chainbreak.mixin;
 import dev.chainbreak.ChainBreakConfig;
 import dev.chainbreak.client.ChainBreakConfigMenu;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.Screen;
@@ -69,7 +68,7 @@ public abstract class InventoryConfigButtonMixin {
 
         Button button = Button.builder(Component.literal("⚙"), b -> {
                     // 这个回调只在"没被拖动"的轻点时触发
-                    Minecraft.getInstance().setScreenAndShow(new ChainBreakConfigMenu(self));
+                    ChainBreakConfigMenu.open(self);
                 })
                 .bounds(ChainBreakConfig.buttonX, ChainBreakConfig.buttonY, CHAINBREAK_WIDTH, CHAINBREAK_HEIGHT)
                 .build();
@@ -129,7 +128,7 @@ public abstract class InventoryConfigButtonMixin {
             ChainBreakConfig.buttonY = chainbreak$button.getY();
             ChainBreakConfig.save();
         } else {
-            Minecraft.getInstance().setScreenAndShow(new ChainBreakConfigMenu(chainbreak$screen));
+            ChainBreakConfigMenu.open(chainbreak$screen);
         }
         cir.setReturnValue(Boolean.TRUE);
     }

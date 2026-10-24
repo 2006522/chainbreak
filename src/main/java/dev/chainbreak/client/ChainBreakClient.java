@@ -48,7 +48,7 @@ public class ChainBreakClient implements ClientModInitializer {
                 ChainBreakState.cycleShape(-1);
             }
             if (configKey != null && configKey.consumeClick() && client.canInterruptScreen()) {
-                client.setScreenAndShow(new ChainBreakConfigMenu(null));
+                ChainBreakConfigMenu.open(null);
             }
         });
     }
