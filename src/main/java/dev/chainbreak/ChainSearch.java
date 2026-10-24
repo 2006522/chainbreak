@@ -31,7 +31,9 @@ public final class ChainSearch {
      */
     public static List<BlockPos> collect(Level level, String shape, BlockPos origin,
                                          BlockState originState, Direction face, ItemStack tool) {
-        int limit = ChainBreakConfig.maxBlocks;
+        // 起始方块自己占 1 个名额，候选（即连锁部分）最多取 maxBlocks - 1 个，
+        // 这样线框预览、HUD 预估和真正破坏的数量三者一致
+        int limit = Math.max(0, ChainBreakConfig.maxBlocks - 1);
         if (Shapes.SHAPELESS.equals(shape)) {
             return collectVein(level, origin, originState, tool, limit);
         }

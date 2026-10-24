@@ -156,6 +156,9 @@ public abstract class ServerPlayerGameModeMixin {
                 pos, origin, this.player.getDirection(), tool);
 
         // 5. 逐个破坏
+        // maxBlocks 指"这一轮一共挖多少块"，起始方块占掉 1 个名额，
+        // 所以留给连锁部分的预算是 maxBlocks - 1（以前只卡连锁数，实际会多挖一块）
+        int budget = Math.max(0, ChainBreakConfig.maxBlocks - 1);
         int chained = 0;
         CHAINBREAK_BUSY.set(Boolean.TRUE);
         try {
@@ -163,7 +166,7 @@ public abstract class ServerPlayerGameModeMixin {
                 this.chainbreak$destroy(pos, tool);
             }
             for (BlockPos target : candidates) {
-                if (chained >= ChainBreakConfig.maxBlocks) {
+                if (chained >= budget) {
                     break;
                 }
                 if (this.chainbreak$toolSpent(tool)) {
