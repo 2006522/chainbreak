@@ -338,12 +338,8 @@ public class ChainBreakConfigListScreen extends Screen {
                 }
                 return true;
             }
-            // 兜底：直接把数字键的扫描码映射成字符（不依赖文本输入是否已开启）
-            char mapped = digitFor(key);
-            if (mapped != 0 && buffer.length() < 16) {
-                buffer = buffer + mapped;
-            }
-            // 编辑期间吞掉其它按键，避免误触发界面行为
+            // 字符输入统一走 charTyped（文本输入已开启），这里不再重复处理，
+            // 否则一次按键会被加两次（打 6 显示 66）
             return true;
         }
         if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
@@ -351,23 +347,6 @@ public class ChainBreakConfigListScreen extends Screen {
             return true;
         }
         return super.keyPressed(event);
-    }
-
-    /** 把数字 / 负号 / 小数点的按键映射成字符，认不出返回 0。 */
-    private static char digitFor(int key) {
-        if (key >= InputConstants.KEY_1 && key <= InputConstants.KEY_9) {
-            return (char) ('1' + (key - InputConstants.KEY_1));
-        }
-        if (key == InputConstants.KEY_0) {
-            return '0';
-        }
-        if (key == InputConstants.KEY_MINUS) {
-            return '-';
-        }
-        if (key == InputConstants.KEY_PERIOD) {
-            return '.';
-        }
-        return 0;
     }
 
     @Override
