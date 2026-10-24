@@ -1,6 +1,7 @@
 package dev.chainbreak.client;
 
 import dev.chainbreak.ChainBreakConfig;
+import dev.chainbreak.ChainBreak;
 import dev.chainbreak.ChainBreakState;
 
 import com.mojang.blaze3d.platform.InputConstants;
@@ -202,8 +203,28 @@ public class ChainBreakConfigListScreen extends Screen {
 
     private void cancel() {
         editing = null;
+        endTextInput();
         ChainBreakConfig.reload();
         this.onClose();
+    }
+
+    /**
+     * 进入编辑：必须显式开启文本输入，否则 SDL 只发按键事件、不产生字符事件，
+     * 表现就是"退格能删、打数字没反应"。
+     */
+    private void beginEditing(Line line) {
+        applyEdit();
+        if (this.minecraft != null) {
+            this.minecraft.textInputManager().startTextInput(this);
+        }
+        editing = line;
+        buffer = line.value.get();
+    }
+
+    private void endTextInput() {
+        if (this.minecraft != null) {
+            this.minecraft.textInputManager().stopTextInput(this);
+        }
     }
 
     /** 把编辑中的文本写回配置。 */
@@ -215,8 +236,11 @@ public class ChainBreakConfigListScreen extends Screen {
         if (target == null || target.commit == null || text.isEmpty()) {
             return;
         }
+        endTextInput();
         try {
-            target.commit.accept(Double.parseDouble(text));
+            double value = Double.parseDouble(text);
+            target.commit.accept(value);
+            ChainBreak.LOGGER.log(System.Logger.Level.INFO, "配置已修改：" + target.label + " = " + text);
         } catch (NumberFormatException ignored) {
             // 非法输入保持原值
         }
@@ -285,9 +309,7 @@ public class ChainBreakConfigListScreen extends Screen {
                     return true;
                 }
                 if (line.type == 3) {
-                    applyEdit();
-                    editing = line;
-                    buffer = line.value.get();
+                    beginEditing(line);
                     return true;
                 }
             }
@@ -303,6 +325,7 @@ public class ChainBreakConfigListScreen extends Screen {
             if (key == InputConstants.KEY_ESCAPE) {
                 editing = null;
                 buffer = "";
+                endTextInput();
                 return true;
             }
             if (key == InputConstants.KEY_RETURN || key == InputConstants.KEY_NUMPADENTER) {
@@ -315,6 +338,11 @@ public class ChainBreakConfigListScreen extends Screen {
                 }
                 return true;
             }
+            // 兜底：直接把数字键的扫描码映射成字符（不依赖文本输入是否已开启）
+            char mapped = digitFor(key);
+            if (mapped != 0 && buffer.length() < 16) {
+                buffer = buffer + mapped;
+            }
             // 编辑期间吞掉其它按键，避免误触发界面行为
             return true;
         }
@@ -323,6 +351,23 @@ public class ChainBreakConfigListScreen extends Screen {
             return true;
         }
         return super.keyPressed(event);
+    }
+
+    /** 把数字 / 负号 / 小数点的按键映射成字符，认不出返回 0。 */
+    private static char digitFor(int key) {
+        if (key >= InputConstants.KEY_1 && key <= InputConstants.KEY_9) {
+            return (char) ('1' + (key - InputConstants.KEY_1));
+        }
+        if (key == InputConstants.KEY_0) {
+            return '0';
+        }
+        if (key == InputConstants.KEY_MINUS) {
+            return '-';
+        }
+        if (key == InputConstants.KEY_PERIOD) {
+            return '.';
+        }
+        return 0;
     }
 
     @Override
@@ -349,6 +394,7 @@ public class ChainBreakConfigListScreen extends Screen {
 
     @Override
     public void onClose() {
+        endTextInput();
         if (this.minecraft != null) {
             this.minecraft.setScreenAndShow(this.parent);
         }
