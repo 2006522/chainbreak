@@ -278,11 +278,37 @@ public class ChainBreakConfigListScreen extends Screen {
     }
 
     private int selStart() {
-        return hasSelection() ? Math.min(selectionAnchor, caret) : caret;
+        int n = buffer.length();
+        int v = hasSelection() ? Math.min(selectionAnchor, caret) : caret;
+        return Math.max(0, Math.min(n, v));
     }
 
     private int selEnd() {
-        return hasSelection() ? Math.max(selectionAnchor, caret) : caret;
+        int n = buffer.length();
+        int v = hasSelection() ? Math.max(selectionAnchor, caret) : caret;
+        return Math.max(0, Math.min(n, v));
+    }
+
+    /**
+     * 把光标和选区锚点收回 [0, buffer.length()] 并收拾掉退化选区。
+     *
+     * <p>为什么必须有这一步：点进输入框时锚点和光标是同一个位置（等着往后拖选），
+     * 此时 {@link #hasSelection()} 返回 false。这时按退格只会让光标后退一格，锚点留在原处，
+     * 两者就"错开"成了一个假的选区，而且末端越过了文本长度 —— 渲染时
+     * {@code buffer.substring(0, selEnd())} 直接抛
+     * {@code StringIndexOutOfBoundsException: Range [0, 2) out of bounds for length 1}
+     * 把游戏崩掉。所以每次改完 buffer 都归一化一次。</p>
+     */
+    private void normalizeEditingState() {
+        int n = buffer.length();
+        caret = Math.max(0, Math.min(n, caret));
+        if (selectionAnchor > n) {
+            selectionAnchor = n;
+        }
+        if (selectionAnchor == caret) {
+            // 收成一点就等于没有选区，顺便把锚点丢掉，免得下次再劈叉
+            selectionAnchor = -1;
+        }
     }
 
     private void deleteSelection() {
@@ -547,6 +573,7 @@ public class ChainBreakConfigListScreen extends Screen {
                         buffer = buffer.substring(0, caret - 1) + buffer.substring(caret);
                         caret--;
                     }
+                    normalizeEditingState();
                     return true;
                 }
                 case InputConstants.KEY_DELETE -> {
@@ -555,6 +582,7 @@ public class ChainBreakConfigListScreen extends Screen {
                     } else if (caret < buffer.length()) {
                         buffer = buffer.substring(0, caret) + buffer.substring(caret + 1);
                     }
+                    normalizeEditingState();
                     return true;
                 }
                 case InputConstants.KEY_LEFT -> {
@@ -599,10 +627,12 @@ public class ChainBreakConfigListScreen extends Screen {
                 if (allowed) {
                     deleteSelection();
                     if (buffer.length() < 16) {
+                        caret = Math.max(0, Math.min(buffer.length(), caret));
                         buffer = buffer.substring(0, caret) + c + buffer.substring(caret);
                         caret++;
                     }
                     selectionAnchor = -1;
+                    normalizeEditingState();
                 }
             }
             return true;
