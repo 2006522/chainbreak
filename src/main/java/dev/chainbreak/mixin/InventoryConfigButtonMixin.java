@@ -73,6 +73,13 @@ public abstract class InventoryConfigButtonMixin {
                 .bounds(ChainBreakConfig.buttonX, ChainBreakConfig.buttonY, CHAINBREAK_WIDTH, CHAINBREAK_HEIGHT)
                 .build();
         chainbreak$clamp(button);
+        // 位置是按屏幕绝对坐标存的，换分辨率 / 界面缩放后可能落到屏幕外，看着像"没保存"。
+        // 这里被收掉的话就把收回后的值写回去，免得每次进界面都在"存的值"和"实际显示"之间来回跳。
+        if (button.getX() != ChainBreakConfig.buttonX || button.getY() != ChainBreakConfig.buttonY) {
+            ChainBreakConfig.buttonX = button.getX();
+            ChainBreakConfig.buttonY = button.getY();
+            ChainBreakConfig.save();
+        }
         try {
             Method m = Screen.class.getDeclaredMethod("addRenderableWidget", GuiEventListener.class);
             m.setAccessible(true);
