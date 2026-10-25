@@ -4,7 +4,7 @@
 
 ## 下载
 
-**[⬇ chainbreak-4.0.12.mc26.4.jar](https://github.com/2006522/chainbreak/releases/download/v4.0.12/chainbreak-4.0.12.mc26.4.jar)**
+**[⬇ chainbreak-4.0.13.mc26.4.jar](https://github.com/2006522/chainbreak/releases/download/v4.0.13/chainbreak-4.0.13.mc26.4.jar)**
 
 更新说明见 [CHANGELOG](CHANGELOG.md)。
 
