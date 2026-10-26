@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -22,7 +23,10 @@ public final class ChainBreakPreview {
 
     private static final long CACHE_NANOS = 50_000_000L; // 50ms
 
+    /** 连锁部分（<b>不含</b>起始方块）。null 表示准星那格不合格，不做连锁。 */
     private static List<BlockPos> cached;
+    /** 线框要画的方块：起始方块 + 连锁部分。 */
+    private static List<BlockPos> cachedOutlines;
     private static long cacheAt;
 
     private ChainBreakPreview() {
@@ -33,13 +37,32 @@ public final class ChainBreakPreview {
      * 起始方块不合格（未指向/空气/黑名单/工具不符）时返回 null。
      */
     public static List<BlockPos> candidates(Minecraft mc) {
+        ensure(mc);
+        return cached;
+    }
+
+    /**
+     * 按住连锁键时要画线框的方块：<b>起始方块也在里面</b>。
+     *
+     * <p>起始方块必须画。HUD 的「采掘 N 方块」和真正破坏的数量都把它算进去了，
+     * 线框却只画连锁部分的话，准星那一格看起来就像"没被选中"——尤其原版自己的
+     * 方块轮廓是很细的暗色框，站在暗处几乎看不见，对比之下更明显。</p>
+     */
+    public static List<BlockPos> outlineTargets(Minecraft mc) {
+        ensure(mc);
+        return cachedOutlines;
+    }
+
+    private static void ensure(Minecraft mc) {
         long now = System.nanoTime();
-        if (cached != null && now - cacheAt < CACHE_NANOS) {
-            return cached;
+        // 用 cacheAt 判断"算过了"而不是 cached != null：准星没指向方块时 cached 也是 null，
+        // 那种情况下也应当命中缓存，不然每帧都要重算一遍
+        if (cacheAt != 0L && now - cacheAt < CACHE_NANOS) {
+            return;
         }
         cacheAt = now;
         cached = compute(mc);
-        return cached;
+        cachedOutlines = cached == null ? null : buildOutlines(mc, cached);
     }
 
     private static List<BlockPos> compute(Minecraft mc) {
@@ -58,5 +81,14 @@ public final class ChainBreakPreview {
         }
         return ChainSearch.collect(mc.level, ChainBreakState.effectiveShape(), origin,
                 originState, mc.player.getDirection(), tool);
+    }
+
+    private static List<BlockPos> buildOutlines(Minecraft mc, List<BlockPos> chain) {
+        List<BlockPos> out = new ArrayList<>(chain.size() + 1);
+        if (mc.hitResult instanceof BlockHitResult bhr) {
+            out.add(bhr.getBlockPos().immutable());
+        }
+        out.addAll(chain);
+        return out;
     }
 }

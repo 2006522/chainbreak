@@ -50,15 +50,17 @@ public abstract class LevelRendererMixin {
         if (mc.level == null || mc.player == null || levelState.cameraRenderState == null) {
             return;
         }
-        List<BlockPos> candidates = ChainBreakPreview.candidates(mc);
-        if (candidates == null || candidates.isEmpty()) {
+        // 目标是"起始方块 + 连锁部分"：准星那一格也要画框，
+        // 否则看起来像没被选中（原版自己的轮廓是很细的暗色框，暗处几乎看不见）
+        List<BlockPos> targets = ChainBreakPreview.outlineTargets(mc);
+        if (targets == null || targets.isEmpty()) {
             return;
         }
 
         var cam = levelState.cameraRenderState.pos;
         int color = 0xFFFFFFFF; // 白色线框
 
-        for (BlockPos p : candidates) {
+        for (BlockPos p : targets) {
             BlockState s = mc.level.getBlockState(p);
             if (s.isAir()) {
                 continue;
