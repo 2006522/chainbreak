@@ -11,9 +11,16 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.ServerPlayerGameMode;
 import net.minecraft.world.Containers;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.IntegerProperty;
+import net.minecraft.world.phys.BlockHitResult;
 
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -29,7 +36,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 连锁挖矿核心，挂在服务端 ServerPlayerGameMode#destroyBlock 上。
+ * 连锁挖矿核心，挂在服务端 ServerPlayerGameMode 上。
  * <p>
  * 玩家正常挖掉一个方块后，若满足条件，按配置的形状收集候选方块，逐个走原版
  * {@code destroyBlock} 流程销毁 —— 掉落物、时运/精准采集、工具耐久、统计、
@@ -37,9 +44,20 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>
  * drop_mode 不是 normal 时（进背包 / 掉到脚下），起始方块也要走自定义掉落，
  * 于是在 HEAD 阶段整轮接管，原版破坏不再执行。
+ * <p>
+ * 另外两件事也挂在这里：{@code destroyBlock} 之后按配置自动补种（replant），
+ * 以及 {@code useItemOn} 成功种下作物后按配置连锁种一片（chain_plant）。
  */
 @Mixin(ServerPlayerGameMode.class)
 public abstract class ServerPlayerGameModeMixin {
+
+    /** 一键种植的范围：3×3 水平，中心优先（种子不够时先种中间那格）。 */
+    @Unique
+    private static final int[] CHAINBREAK_PLANT_OFFSETS = {
+            0, 0,
+            -1, 0, 1, 0, 0, -1, 0, 1,
+            -1, -1, 1, -1, -1, 1, 1, 1
+    };
 
     @Shadow
     @Final
@@ -59,6 +77,10 @@ public abstract class ServerPlayerGameModeMixin {
     /** HEAD 阶段记录被挖方块的原状态（RETURN 时它已经变成空气）。 */
     @Unique
     private BlockState chainbreak$originState;
+
+    /** 本轮补种了几格（反馈用）。 */
+    @Unique
+    private int chainbreak$replanted;
 
     @Inject(method = "destroyBlock", at = @At("HEAD"), cancellable = true)
     private void chainbreak$captureOrigin(BlockPos pos, CallbackInfoReturnable<Boolean> cir) {
@@ -89,6 +111,76 @@ public abstract class ServerPlayerGameModeMixin {
             this.chainbreak$runChain(pos, origin, false);
         } catch (Exception e) {
             ChainBreak.LOGGER.log(System.Logger.Level.ERROR, "[chainbreak] 连锁挖矿时发生异常", e);
+        }
+    }
+
+    // ---------------------------------------------------------------- 一键连锁种植
+
+    /**
+     * 右键种子成功种下一格后，按 3×3 补种一片。
+     *
+     * <p>只对"作物方块"生效（方块自己带 {@code age} 属性），普通方块、火把、
+     * 床之类照旧一次一个。触发条件和挖矿共用同一套（按键 / 潜行 / 两者）。</p>
+     */
+    @Inject(method = "useItemOn", at = @At("RETURN"))
+    private void chainbreak$chainPlant(ServerPlayer player, Level level, ItemStack stack, InteractionHand hand,
+                                       BlockHitResult hit, CallbackInfoReturnable<InteractionResult> cir) {
+        if (!ChainBreakConfig.chainPlant || level == null || level.isClientSide()) {
+            return;
+        }
+        InteractionResult result = cir.getReturnValue();
+        if (result == null || !result.consumesAction()) {
+            return; // 原版没种成功（没对准耕地、光照不够……）就别连锁
+        }
+        if (!(stack.getItem() instanceof BlockItem blockItem)) {
+            return;
+        }
+        BlockState crop = blockItem.getBlock().defaultBlockState();
+        if (ChainSearch.ageProperty(crop) == null) {
+            return; // 不是作物
+        }
+        if (!this.chainbreak$isTriggered()) {
+            return;
+        }
+
+        ChainBreakConfig.loadIfNeeded();
+
+        // 原版把作物种在了哪一格：点击位置本身（可替换方块，如草）或点击面外侧（泥土上表面）
+        BlockPos hitPos = hit.getBlockPos();
+        BlockPos origin = level.getBlockState(hitPos).getBlock() == blockItem.getBlock()
+                ? hitPos
+                : hitPos.relative(hit.getDirection());
+
+        int planted = 0;
+        for (int i = 0; i < CHAINBREAK_PLANT_OFFSETS.length; i += 2) {
+            if (stack.isEmpty()) {
+                break;
+            }
+            BlockPos pos = origin.offset(CHAINBREAK_PLANT_OFFSETS[i], 0, CHAINBREAK_PLANT_OFFSETS[i + 1]);
+            // 只往"可替换"里种：耕地、空气、草丛可以，水/石头/已有作物不行
+            if (!level.getBlockState(pos).canBeReplaced()) {
+                continue;
+            }
+            if (!crop.canSurvive(level, pos)) {
+                continue;
+            }
+            level.setBlock(pos, crop, Block.UPDATE_ALL);
+            if (!player.isCreative()) {
+                stack.shrink(1);
+            }
+            planted++;
+        }
+
+        if (planted > 0) {
+            ChainBreakState.lastBroken = planted;
+            if (ChainBreakConfig.feedback) {
+                try {
+                    player.sendOverlayMessage(Component.literal(
+                            "§a" + crop.getBlock().getName().getString() + " §f+" + planted));
+                } catch (Exception ignored) {
+                    // 提示失败不影响功能
+                }
+            }
         }
     }
 
@@ -160,6 +252,7 @@ public abstract class ServerPlayerGameModeMixin {
         // 所以留给连锁部分的预算是 maxBlocks - 1（以前只卡连锁数，实际会多挖一块）
         int budget = Math.max(0, ChainBreakConfig.maxBlocks - 1);
         int chained = 0;
+        this.chainbreak$replanted = 0;
         CHAINBREAK_BUSY.set(Boolean.TRUE);
         try {
             if (includeOrigin) {
@@ -204,7 +297,8 @@ public abstract class ServerPlayerGameModeMixin {
                 this.player.giveExperiencePoints(-cost);
             }
         }
-        this.chainbreak$feedback("§a" + origin.getBlock().getName().getString() + " §f×" + total);
+        this.chainbreak$feedback("§a" + origin.getBlock().getName().getString() + " §f×" + total
+                + (this.chainbreak$replanted > 0 ? " §7(补种 " + this.chainbreak$replanted + ")" : ""));
         ChainBreakState.lastBroken = total;
         return true;
     }
@@ -253,22 +347,30 @@ public abstract class ServerPlayerGameModeMixin {
      */
     @Unique
     private boolean chainbreak$destroy(BlockPos pos, ItemStack tool) {
+        BlockState before = this.level.getBlockState(pos);
         String mode = ChainBreakConfig.dropMode;
         if ("normal".equals(mode)) {
-            return this.player.gameMode.destroyBlock(pos);
+            boolean ok = this.player.gameMode.destroyBlock(pos);
+            if (ok) {
+                this.chainbreak$replant(pos, before);
+            }
+            return ok;
         }
 
-        BlockState state = this.level.getBlockState(pos);
-        if (state.isAir()) {
+        if (before.isAir()) {
             return false;
         }
 
         // 用原版 getDrops 计算掉落（传入玩家与工具以正确处理精准采集/时运）
-        List<ItemStack> drops = Block.getDrops(state, this.level, pos,
+        List<ItemStack> drops = Block.getDrops(before, this.level, pos,
                 this.level.getBlockEntity(pos), this.player, tool);
 
         // 移除方块（不生成实体掉落）
         this.level.removeBlock(pos, false);
+        if (this.level.getBlockState(pos).isAir()) {
+            // 补种要在移除之后：作物本来就长在这一格上
+            this.chainbreak$replant(pos, before);
+        }
 
         for (ItemStack drop : drops) {
             if ("inventory".equals(mode)) {
@@ -286,5 +388,61 @@ public abstract class ServerPlayerGameModeMixin {
             }
         }
         return true;
+    }
+
+    // ---------------------------------------------------------------- 自动补种
+
+    /**
+     * 原位补种：把刚被挖掉的作物重新种回 {@code age = 0}，并从背包扣一颗种子。
+     *
+     * <p>种子靠"哪个 BlockItem 放置出来就是这种作物"反查（小麦种子 → 小麦、
+     * 胡萝卜 → 胡萝卜、下界疣 → 下界疣……），比手写映射表可靠。
+     * 种之前先过 {@code canSurvive}，光照或支撑不够就不硬种，免得留下会自己掉的方块。</p>
+     */
+    @Unique
+    private void chainbreak$replant(BlockPos pos, BlockState before) {
+        if (!ChainBreakConfig.replant || before == null) {
+            return;
+        }
+        IntegerProperty age = ChainSearch.ageProperty(before);
+        if (age == null) {
+            return; // 不是作物
+        }
+        if (!this.level.getBlockState(pos).isAir()) {
+            return; // 这一格已经被别的东西占了
+        }
+        Block crop = before.getBlock();
+        BlockState young = crop.defaultBlockState();
+        if (young.hasProperty(age)) {
+            young = young.setValue(age, age.getPossibleValues().get(0));
+        }
+        if (!young.canSurvive(this.level, pos)) {
+            return;
+        }
+        if (!this.chainbreak$takeSeed(crop)) {
+            return; // 没种子就别种
+        }
+        this.level.setBlock(pos, young, Block.UPDATE_ALL);
+        this.chainbreak$replanted++;
+    }
+
+    /** 从背包里找一颗"能种出该作物"的物品并扣掉（创造模式不扣）。 */
+    @Unique
+    private boolean chainbreak$takeSeed(Block crop) {
+        if (this.player.isCreative()) {
+            return true;
+        }
+        Inventory inventory = this.player.getInventory();
+        for (int i = 0; i < inventory.getContainerSize(); i++) {
+            ItemStack stack = inventory.getItem(i);
+            if (stack.isEmpty()) {
+                continue;
+            }
+            if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() == crop) {
+                stack.shrink(1);
+                return true;
+            }
+        }
+        return false;
     }
 }

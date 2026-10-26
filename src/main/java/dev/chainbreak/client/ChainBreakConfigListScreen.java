@@ -122,6 +122,14 @@ public class ChainBreakConfigListScreen extends Screen {
         addBool("无形状模式破坏其他方块", () -> ChainBreakConfig.shapelessAnyBlock,
                 v -> ChainBreakConfig.shapelessAnyBlock = v);
 
+        addGroup("农作物");
+        addBool("只连锁同成熟度的作物", () -> ChainBreakConfig.cropSameAge,
+                v -> ChainBreakConfig.cropSameAge = v);
+        addBool("连锁收割后自动补种", () -> ChainBreakConfig.replant,
+                v -> ChainBreakConfig.replant = v);
+        addBool("连锁一键种植（右键种子）", () -> ChainBreakConfig.chainPlant,
+                v -> ChainBreakConfig.chainPlant = v);
+
         addGroup("消耗与限制");
         addNum("单次最大方块数", () -> ChainBreakConfig.maxBlocks,
                 v -> ChainBreakConfig.maxBlocks = (int) clamp(v, 1, 1024));

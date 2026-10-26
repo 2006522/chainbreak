@@ -53,6 +53,15 @@ public final class ChainBreakConfig {
     public static boolean feedback = true;
     /** 掉落方式：normal=原地掉落 / inventory=直接进背包 / feet=掉到玩家脚下 */
     public static String dropMode = "normal";
+    /**
+     * 作物按成熟度过滤：起始方块是带 {@code age} 属性的作物时，
+     * 只连锁<b>同种作物且成熟阶段相同</b>的方块（挖成熟小麦不会铲掉没熟的）。
+     */
+    public static boolean cropSameAge = true;
+    /** 连锁收割作物后，自动用背包里的种子在原位补种。 */
+    public static boolean replant = false;
+    /** 连锁键 + 右键种子：一次种一片（3×3 水平）。 */
+    public static boolean chainPlant = false;
     /** 永不连锁的方块 id。 */
     public static Set<String> blacklist = new LinkedHashSet<>(Arrays.asList("minecraft:bedrock", "minecraft:barrier"));
     /** 额外允许当作"工具"的物品 id。 */
@@ -163,6 +172,9 @@ public final class ChainBreakConfig {
         cancelOnBlockBreakFail = false;
         feedback = true;
         dropMode = "normal";
+        cropSameAge = true;
+        replant = false;
+        chainPlant = false;
         blacklist = new LinkedHashSet<>(Arrays.asList("minecraft:bedrock", "minecraft:barrier"));
         includedTools = new LinkedHashSet<>();
         excludedTools = new LinkedHashSet<>();
@@ -204,6 +216,9 @@ public final class ChainBreakConfig {
         cancelOnBlockBreakFail = b(p, "cancel_on_block_break_fail", cancelOnBlockBreakFail);
         feedback = b(p, "feedback", feedback);
         dropMode = str(p, "drop_mode", dropMode).trim().toLowerCase();
+        cropSameAge = b(p, "crop_same_age", cropSameAge);
+        replant = b(p, "replant", replant);
+        chainPlant = b(p, "chain_plant", chainPlant);
         buttonX = i(p, "button_x", buttonX);
         buttonY = i(p, "button_y", buttonY);
         blacklist = set(p, "blacklist", blacklist);
@@ -239,6 +254,9 @@ public final class ChainBreakConfig {
             out.setProperty("cancel_on_block_break_fail", Boolean.toString(cancelOnBlockBreakFail));
             out.setProperty("feedback", Boolean.toString(feedback));
             out.setProperty("drop_mode", dropMode);
+            out.setProperty("crop_same_age", Boolean.toString(cropSameAge));
+            out.setProperty("replant", Boolean.toString(replant));
+            out.setProperty("chain_plant", Boolean.toString(chainPlant));
             out.setProperty("button_x", Integer.toString(buttonX));
             out.setProperty("button_y", Integer.toString(buttonY));
             out.setProperty("blacklist", String.join(",", blacklist));
