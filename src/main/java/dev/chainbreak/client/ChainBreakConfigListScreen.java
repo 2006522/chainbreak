@@ -334,7 +334,12 @@ public class ChainBreakConfigListScreen extends Screen {
         try {
             target.commit.accept(Double.parseDouble(text));
             ChainBreakConfig.save();
-            ChainBreak.LOGGER.log(System.Logger.Level.INFO, "配置已修改：" + target.label + " = " + text);
+            // 记"真正生效的值"而不是输入原文：各字段的 setter 会 clamp（比如最大方块数卡在 1~1024），
+            // 照着原文记会误导排查——曾经就有人根据日志以为 max_blocks 真的是 9999
+            String applied = target.value.get();
+            ChainBreak.LOGGER.log(System.Logger.Level.INFO,
+                    "配置已修改：" + target.label + " = " + applied
+                            + (applied.equals(text) ? "" : "（输入 " + text + "，超出范围已修正）"));
         } catch (NumberFormatException ignored) {
             // 非法输入保持原值
         }
