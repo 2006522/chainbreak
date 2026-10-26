@@ -4,6 +4,7 @@ import dev.chainbreak.ChainBreak;
 import dev.chainbreak.ChainBreakConfig;
 import dev.chainbreak.ChainBreakState;
 import dev.chainbreak.ChainSearch;
+import dev.chainbreak.Replant;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -393,9 +394,9 @@ public abstract class ServerPlayerGameModeMixin {
     // ---------------------------------------------------------------- 自动补种
 
     /**
-     * 原位补种：把刚被挖掉的作物重新种回 {@code age = 0}，并从背包扣一颗种子。
+     * 原位补种：把刚被挖掉的作物种回 {@code age = 0}、把树补回树苗，并从背包扣掉对应物品。
      *
-     * <p>种子靠"哪个 BlockItem 放置出来就是这种作物"反查（小麦种子 → 小麦、
+     * <p>作物靠"哪个 BlockItem 放置出来就是这种作物"反查（小麦种子 → 小麦、
      * 胡萝卜 → 胡萝卜、下界疣 → 下界疣……），比手写映射表可靠。
      * 种之前先过 {@code canSurvive}，光照或支撑不够就不硬种，免得留下会自己掉的方块。</p>
      */
@@ -404,12 +405,19 @@ public abstract class ServerPlayerGameModeMixin {
         if (!ChainBreakConfig.replant || before == null) {
             return;
         }
-        IntegerProperty age = ChainSearch.ageProperty(before);
-        if (age == null) {
-            return; // 不是作物
-        }
         if (!this.level.getBlockState(pos).isAir()) {
             return; // 这一格已经被别的东西占了
+        }
+
+        // 树：只在"树基"补一棵树苗
+        if (ChainSearch.isLog(before)) {
+            this.chainbreak$replantTree(pos, before);
+            return;
+        }
+
+        IntegerProperty age = ChainSearch.ageProperty(before);
+        if (age == null) {
+            return; // 既不是作物也不是树干
         }
         Block crop = before.getBlock();
         BlockState young = crop.defaultBlockState();
@@ -419,16 +427,44 @@ public abstract class ServerPlayerGameModeMixin {
         if (!young.canSurvive(this.level, pos)) {
             return;
         }
-        if (!this.chainbreak$takeSeed(crop)) {
+        if (!this.chainbreak$takeItemFor(crop)) {
             return; // 没种子就别种
         }
         this.level.setBlock(pos, young, Block.UPDATE_ALL);
         this.chainbreak$replanted++;
     }
 
-    /** 从背包里找一颗"能种出该作物"的物品并扣掉（创造模式不扣）。 */
+    /**
+     * 树被砍掉后在树基补一棵树苗。
+     *
+     * <p>为什么要判断"西北角"：2×2 的大云杉 / 大丛林树基是 4 格原木，逐格补会种出 4 棵。
+     * 只认「西边和北边都不是原木」的那一格，2×2 就只补 1 棵；普通单干树西/北本来就是空气，
+     * 照常补。挖的顺序不定，最坏情况也只是这棵树少补一棵，不会多补。</p>
+     */
     @Unique
-    private boolean chainbreak$takeSeed(Block crop) {
+    private void chainbreak$replantTree(BlockPos pos, BlockState log) {
+        if (ChainSearch.isLog(this.level.getBlockState(pos.west()))
+                || ChainSearch.isLog(this.level.getBlockState(pos.north()))) {
+            return;
+        }
+        Block sapling = Replant.saplingFor(log.getBlock());
+        if (sapling == null) {
+            return; // 下界菌之类本来就没有对应树苗
+        }
+        BlockState young = sapling.defaultBlockState();
+        if (!young.canSurvive(this.level, pos)) {
+            return; // 地面不对或光照不够
+        }
+        if (!this.chainbreak$takeItemFor(sapling)) {
+            return;
+        }
+        this.level.setBlock(pos, young, Block.UPDATE_ALL);
+        this.chainbreak$replanted++;
+    }
+
+    /** 从背包里找一颗"放置出来就是该方块"的物品并扣掉（创造模式不扣）。 */
+    @Unique
+    private boolean chainbreak$takeItemFor(Block block) {
         if (this.player.isCreative()) {
             return true;
         }
@@ -438,7 +474,7 @@ public abstract class ServerPlayerGameModeMixin {
             if (stack.isEmpty()) {
                 continue;
             }
-            if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() == crop) {
+            if (stack.getItem() instanceof BlockItem blockItem && blockItem.getBlock() == block) {
                 stack.shrink(1);
                 return true;
             }

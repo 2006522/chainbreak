@@ -125,7 +125,7 @@ public class ChainBreakConfigListScreen extends Screen {
         addGroup("农作物");
         addBool("只连锁同成熟度的作物", () -> ChainBreakConfig.cropSameAge,
                 v -> ChainBreakConfig.cropSameAge = v);
-        addBool("连锁收割后自动补种", () -> ChainBreakConfig.replant,
+        addBool("连锁后自动补种（作物/树苗）", () -> ChainBreakConfig.replant,
                 v -> ChainBreakConfig.replant = v);
         addBool("连锁一键种植（右键种子）", () -> ChainBreakConfig.chainPlant,
                 v -> ChainBreakConfig.chainPlant = v);

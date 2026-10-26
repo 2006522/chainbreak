@@ -58,7 +58,7 @@ public final class ChainBreakConfig {
      * 只连锁<b>同种作物且成熟阶段相同</b>的方块（挖成熟小麦不会铲掉没熟的）。
      */
     public static boolean cropSameAge = true;
-    /** 连锁收割作物后，自动用背包里的种子在原位补种。 */
+    /** 连锁挖完自动补种：作物补种子、树补树苗（背包里有才补；创造模式不扣）。 */
     public static boolean replant = false;
     /** 连锁键 + 右键种子：一次种一片（3×3 水平）。 */
     public static boolean chainPlant = false;
