@@ -130,6 +130,10 @@ public class ChainBreakConfigListScreen extends Screen {
         addBool("连锁一键种植（右键种子）", () -> ChainBreakConfig.chainPlant,
                 v -> ChainBreakConfig.chainPlant = v);
 
+        addGroup("树木");
+        addBool("挖树连带挖树叶", () -> ChainBreakConfig.fellLeaves,
+                v -> ChainBreakConfig.fellLeaves = v);
+
         addGroup("消耗与限制");
         addNum("单次最大方块数", () -> ChainBreakConfig.maxBlocks,
                 v -> ChainBreakConfig.maxBlocks = (int) clamp(v, 1, 1024));

@@ -2,8 +2,11 @@ package dev.chainbreak;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 import net.minecraft.world.level.block.state.properties.Property;
@@ -61,11 +64,22 @@ public final class ChainSearch {
         // 起始方块自己占 1 个名额，候选（即连锁部分）最多取 maxBlocks - 1 个，
         // 这样线框预览、HUD 预估和真正破坏的数量三者一致
         int limit = Math.max(0, ChainBreakConfig.maxBlocks - 1);
-        if (Shapes.SHAPELESS.equals(shape)) {
-            return collectVein(level, origin, originState, tool, limit);
-        }
+        List<BlockPos> trunk = Shapes.SHAPELESS.equals(shape)
+                ? collectVein(level, origin, originState, tool, limit)
+                : collectGeometric(level, shape, origin, originState, face, tool, limit);
 
-        // 几何形状：先按形状枚举，再统一过滤（与无形状模式同一套规则）
+        // 挖树连带树叶：树干采完后再从树干出发 BFS 连通的树叶。
+        // 只对原木生效，所以挖石头/挖矿不会多出任何东西。
+        if (ChainBreakConfig.fellLeaves && isLog(originState)) {
+            return appendLeaves(level, origin, trunk, tool, limit);
+        }
+        return trunk;
+    }
+
+    /** 几何形状模式：先按形状枚举，再统一过滤（与无形状模式同一套规则）。 */
+    private static List<BlockPos> collectGeometric(Level level, String shape, BlockPos origin,
+                                                   BlockState originState, Direction face,
+                                                   ItemStack tool, int limit) {
         List<BlockPos> out = new ArrayList<>(Math.min(limit, 64));
         boolean anyBlock = ChainBreakConfig.shapedAnyBlock;
         IntegerProperty age = ChainBreakConfig.cropSameAge ? ageProperty(originState) : null;
@@ -127,6 +141,68 @@ public final class ChainSearch {
                         continue;
                     }
                 } else if (!anyBlock && state.getBlock() != originState.getBlock()) {
+                    continue;
+                }
+                out.add(next);
+                queue.add(next);
+            }
+        }
+        return out;
+    }
+
+    /** 这个方块是不是原木 / 菌柄（树干）。 */
+    public static boolean isLog(BlockState state) {
+        return inTag(state, BlockTags.LOGS);
+    }
+
+    /** 这个方块是不是树叶。 */
+    public static boolean isLeaves(BlockState state) {
+        return inTag(state, BlockTags.LEAVES);
+    }
+
+    /** 26.x 的 BlockState 只有 {@code is(TagKey, Predicate)} 这一个重载，第二个参数恒真就是单纯判标签。 */
+    private static boolean inTag(BlockState state, TagKey<Block> tag) {
+        return state.is(tag, s -> true);
+    }
+
+    /**
+     * 追加"这棵树的树叶"：从起始原木和已经采到的树干出发，6 向 BFS 收集连通的树叶。
+     *
+     * <p>只收<strong>连通的</strong>树叶，所以不会把旁边另一棵树的树冠一起铲掉；
+     * 预算和树干共用 {@code limit}，树干多的时候树叶能拿到的名额就少（调大上限即可）。</p>
+     */
+    private static List<BlockPos> appendLeaves(Level level, BlockPos origin, List<BlockPos> trunks,
+                                               ItemStack tool, int limit) {
+        int remaining = limit - trunks.size();
+        if (remaining <= 0) {
+            return trunks;
+        }
+        List<BlockPos> out = new ArrayList<>(trunks.size() + remaining);
+        out.addAll(trunks);
+
+        ArrayDeque<BlockPos> queue = new ArrayDeque<>();
+        Set<BlockPos> visited = new HashSet<>();
+        BlockPos start = origin.immutable();
+        visited.add(start);
+        queue.add(start);
+        for (BlockPos trunk : trunks) {
+            if (visited.add(trunk)) {
+                queue.add(trunk);
+            }
+        }
+
+        int budget = remaining * 8 + 64;
+        while (!queue.isEmpty() && out.size() < limit && budget-- > 0) {
+            BlockPos current = queue.poll();
+            for (Direction dir : Direction.values()) {
+                if (out.size() >= limit) {
+                    break;
+                }
+                BlockPos next = current.relative(dir);
+                if (!visited.add(next)) {
+                    continue;
+                }
+                if (!isLeaves(level.getBlockState(next)) || !isCandidate(level, next, tool)) {
                     continue;
                 }
                 out.add(next);
