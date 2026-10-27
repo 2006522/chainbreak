@@ -368,6 +368,10 @@ public abstract class ServerPlayerGameModeMixin {
 
         // 移除方块（不生成实体掉落）
         this.level.removeBlock(pos, false);
+        // 原版的 destroyBlock 在移除方块之后会调 spawnAfterBreak —— 钻石、青金石、红石这些矿的
+        // 经验球就是从这里出来的。自己走掉落链路（进背包 / 掉脚下）就绕过了那一步，
+        // 所以必须手动补一次，否则挖矿一个经验球都不掉。
+        before.spawnAfterBreak(this.level, pos, tool, true, this.player);
         if (this.level.getBlockState(pos).isAir()) {
             // 补种要在移除之后：作物本来就长在这一格上
             this.chainbreak$replant(pos, before);
