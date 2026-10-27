@@ -36,8 +36,8 @@ import java.util.Set;
 public class ChainBreakHud implements HudElement {
 
     private static final int BG = 0x90000000;
-    private static final int PAD = 5;
-    private static final int LINE = 11;
+    private static final int PAD = 4;
+    private static final int LINE = 10;
 
     @Override
     public void extractRenderState(GuiGraphicsExtractor g) {
@@ -49,48 +49,47 @@ public class ChainBreakHud implements HudElement {
 
         // 固定用物理 Shift 键展开菜单（不随自定义潜行键变化）
         boolean menuOpen = isShiftHeld();
-        String[] names = ChainBreakState.SHAPE_NAMES;
-        int idx = ChainBreakState.index();
+        List<Component> lines = new ArrayList<>();
 
-        int lines = menuOpen ? 2 + names.length + 1 + 1 : 4;
-        int panelWidth = 168;
-        int panelHeight = PAD + lines * LINE + PAD - 3;
+        lines.add(Component.literal("连锁挖矿 已激活"));
+        if (menuOpen) {
+            String[] names = ChainBreakState.SHAPE_NAMES;
+            int idx = ChainBreakState.index();
+            for (int i = 0; i < names.length; i++) {
+                boolean selected = i == idx;
+                lines.add(selected
+                        ? Component.literal("▶ " + names[i]).withStyle(ChatFormatting.YELLOW)
+                        : Component.literal(" " + names[i]).withStyle(ChatFormatting.GRAY));
+            }
+            lines.add(Component.literal("Shift+滚轮 切换")
+                    .withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.ITALIC));
+        } else {
+            lines.add(Component.literal("Shift 打开菜单")
+                    .withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.ITALIC));
+        }
+
+        // 预估：准星指向的方块按当前形状会破坏多少个（含起始方块）
+        lines.add(Component.literal("采掘 " + estimateTargeted(mc) + " · " + targetBlockName(mc))
+                .withStyle(ChatFormatting.GRAY));
+        // 最低工具要求：满足 ✓，不满足 ✗
+        lines.add(toolRequirement(mc));
+
+        // 宽度按最长那一行算，别用写死的 168 —— 中文方块名长短差很多
+        int width = 0;
+        for (Component line : lines) {
+            width = Math.max(width, font.width(line));
+        }
+        int panelWidth = width + PAD * 2;
+        int panelHeight = PAD * 2 + lines.size() * LINE;
 
         g.fill(4, 4, 4 + panelWidth, 4 + panelHeight, BG);
 
         int x = 4 + PAD;
         int y = 4 + PAD;
-
-        g.text(font, Component.literal("连锁挖矿 已激活"), x, y, 0xFFFFFFFF);
-        y += LINE;
-
-        if (menuOpen) {
-            for (int i = 0; i < names.length; i++) {
-                boolean selected = i == idx;
-                Component label = selected
-                        ? Component.literal("▶ " + names[i]).withStyle(ChatFormatting.YELLOW)
-                        : Component.literal(names[i]).withStyle(ChatFormatting.GRAY);
-                g.text(font, label, x, y, 0xFFFFFFFF);
-                y += LINE;
-            }
-            g.text(font, Component.literal("按住Shift+滚轮切换")
-                    .withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.ITALIC), x, y, 0xFFFFFFFF);
-            y += LINE;
-        } else {
-            g.text(font, Component.literal("按住Shift打开菜单")
-                    .withStyle(ChatFormatting.GRAY, ChatFormatting.ITALIC), x, y, 0xFFFFFFFF);
+        for (Component line : lines) {
+            g.text(font, line, x, y, 0xFFFFFFFF);
             y += LINE;
         }
-
-        // 预估：准星指向的方块按当前形状会破坏多少个（含起始方块）
-        int estimate = estimateTargeted(mc);
-        String blockName = targetBlockName(mc);
-        g.text(font, Component.literal("采掘 " + estimate + " 方块 · " + blockName)
-                .withStyle(ChatFormatting.GRAY), x, y, 0xFFFFFFFF);
-        y += LINE;
-
-        // 最低工具要求：满足 ✓，不满足 ✗
-        g.text(font, toolRequirement(mc), x, y, 0xFFFFFFFF);
     }
 
     /** 准星指向方块的最低工具要求 + 当前工具是否满足（✓/✗）。 */
