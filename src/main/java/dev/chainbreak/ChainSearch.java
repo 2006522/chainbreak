@@ -106,13 +106,22 @@ public final class ChainSearch {
         return out;
     }
 
-    /** 无形状模式：以起始方块为中心做 BFS，只看相邻方块。 */
+    /**
+     * 无形状模式：以起始方块为中心做 BFS，只看相邻方块。
+     *
+     * <p><b>原木按 26 邻接搜</b>（含 8 个斜向、20 个棱角斜向），其它方块仍按 6 向。
+     * 原因：树的枝干和某些 2×2 树干的对角块是"只靠一个角接触"的，6 向 BFS
+     * 到不了那些位置 —— 表现就是砍完主干以后角落还剩一两块木头，得再挖一次。
+     * 矿石/石头不需要这个，保持 6 向免得斜着多挖。</p>
+     */
     public static List<BlockPos> collectVein(Level level, BlockPos origin, BlockState originState,
                                              ItemStack tool, int limit) {
         boolean anyBlock = ChainBreakConfig.shapelessAnyBlock;
         int budget = limit * 8 + 64;
         IntegerProperty age = ChainBreakConfig.cropSameAge ? ageProperty(originState) : null;
         Integer originAge = age == null ? null : originState.getValue(age);
+        // 树干可能只在对角相连，矿石不需要
+        boolean diagonal = isLog(originState);
 
         List<BlockPos> out = new ArrayList<>(Math.min(limit, 64));
         ArrayDeque<BlockPos> queue = new ArrayDeque<>();
@@ -122,29 +131,47 @@ public final class ChainSearch {
         visited.add(start);
         queue.add(start);
 
+        outer:
         while (!queue.isEmpty() && out.size() < limit && budget-- > 0) {
             BlockPos current = queue.poll();
-            for (Direction dir : Direction.values()) {
-                if (out.size() >= limit) {
-                    break;
-                }
-                BlockPos next = current.relative(dir);
-                if (!visited.add(next)) {
-                    continue;
-                }
-                if (!isCandidate(level, next, tool)) {
-                    continue;
-                }
-                BlockState state = level.getBlockState(next);
-                if (age != null) {
-                    if (state.getBlock() != originState.getBlock() || !originAge.equals(state.getValue(age))) {
-                        continue;
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dz = -1; dz <= 1; dz++) {
+                        if (dx == 0 && dy == 0 && dz == 0) {
+                            continue;
+                        }
+                        boolean orthogonal = Math.abs(dx) + Math.abs(dy) + Math.abs(dz) == 1;
+                        // 非原木只认正对面（六个方向），原木连斜角一起收
+                        if (!diagonal && !orthogonal) {
+                            continue;
+                        }
+                        if (out.size() >= limit) {
+                            break outer;
+                        }
+                        BlockPos next = current.offset(dx, dy, dz);
+                        if (!visited.add(next)) {
+                            continue;
+                        }
+                        if (!isCandidate(level, next, tool)) {
+                            continue;
+                        }
+                        BlockState state = level.getBlockState(next);
+                        if (age != null) {
+                            if (state.getBlock() != originState.getBlock() || !originAge.equals(state.getValue(age))) {
+                                continue;
+                            }
+                        } else if (!anyBlock && state.getBlock() != originState.getBlock()) {
+                            continue;
+                        }
+                        // 斜向只认同一种方块：开了「任意方块」也只在正对面扩散，
+                        // 免得砍棵树把斜角挨着的泥土、草皮一起铲了
+                        if (!orthogonal && state.getBlock() != originState.getBlock()) {
+                            continue;
+                        }
+                        out.add(next);
+                        queue.add(next);
                     }
-                } else if (!anyBlock && state.getBlock() != originState.getBlock()) {
-                    continue;
                 }
-                out.add(next);
-                queue.add(next);
             }
         }
         return out;
